@@ -709,6 +709,16 @@ config ZSMALLOC_STAT
 	  information to userspace via debugfs.
 	  If unsure, say N.
 
+config ZSMALLOC_CHAIN_SIZE
+	int "Maximum number of physical pages per-zspage"
+	default 4
+	range 4 16
+	depends on ZSMALLOC
+	help
+	  Sets the upper limit on physical pages per zspage. The allocator
+	  selects a chain size for each object size class when creating a
+	  pool. Larger limits can reduce wasted space and class merging.
+
 config GENERIC_EARLY_IOREMAP
 	bool
 
