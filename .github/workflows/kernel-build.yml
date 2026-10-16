@@ -65,8 +65,15 @@ jobs:
             printf 'ANYKERNEL_COMMIT=%s\n' "$ANYKERNEL_COMMIT"
           } >> "$GITHUB_ENV"
           swap_kib=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
-          if (( swap_kib < 8388608 )); then
-            sudo fallocate -l 8G "$RUNNER_TEMP/kr-build.swap"
+          target_swap_kib=$((24 * 1024 * 1024))
+          if (( swap_kib < target_swap_kib )); then
+            swap_gib=$(( (target_swap_kib - swap_kib + 1048575) / 1048576 ))
+            available_kib=$(df -k --output=avail "$RUNNER_TEMP" | tail -n 1)
+            if (( available_kib < (swap_gib + 20) * 1048576 )); then
+              printf '[ERROR] 磁盘空间不足，无法增加 swap 并保留构建空间\n' >&2
+              exit 1
+            fi
+            sudo fallocate -l "${swap_gib}G" "$RUNNER_TEMP/kr-build.swap"
             sudo chmod 600 "$RUNNER_TEMP/kr-build.swap"
             sudo mkswap "$RUNNER_TEMP/kr-build.swap"
             sudo swapon "$RUNNER_TEMP/kr-build.swap"
