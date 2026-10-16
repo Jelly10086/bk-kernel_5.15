@@ -178,4 +178,6 @@ if test -n "${BUILD_NUMBER}"; then
 	res="$res-ab${BUILD_NUMBER}"
 fi
 
+res="${res}${KBUILD_LOCALVERSION_SUFFIX}"
+
 echo "$res"

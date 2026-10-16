@@ -27,6 +27,16 @@ def resolve_version_name(value: str, kernel_version: str) -> str:
     return value[:segment.start()] + kernel_version + value[segment.end():]
 
 
+def short_version_name(value: str) -> str:
+    segment = version_segment(value)
+    prefix = re.sub(r"[_-](?:android)?\d+[-_]$", "", value[:segment.start()]).rstrip("._-")
+    suffix = value[segment.end():].lstrip("._-")
+    name = "_".join(part for part in (prefix, suffix) if part)
+    if not name:
+        raise ValueError("版本中应包含内核名称或构建编号")
+    return name
+
+
 def source_kernel_version() -> str:
     text = Path(__file__).resolve().parent.parent.joinpath("Makefile").read_text()
     parts = []
@@ -41,10 +51,14 @@ def source_kernel_version() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="解析内核显示版本")
     parser.add_argument("value")
-    parser.add_argument("--template", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--template", action="store_true")
+    mode.add_argument("--short", action="store_true")
     args = parser.parse_args()
     if args.template:
         print(version_template(args.value))
+    elif args.short:
+        print(short_version_name(args.value))
     else:
         print(resolve_version_name(args.value, source_kernel_version()))
 
