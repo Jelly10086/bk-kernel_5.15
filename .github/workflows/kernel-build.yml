@@ -25,6 +25,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    outputs:
+      ak3-artifact: ${{ steps.ak3.outputs.artifact-id }}
+      metadata-artifact: ${{ steps.metadata.outputs.artifact-id }}
     env:
       OUT_DIR: ${{ github.workspace }}/kr-build/out
       DIST_DIR: ${{ github.workspace }}/kr-build/dist
@@ -235,3 +238,45 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download flashable AK3
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.ak3-artifact }}
+          path: ${{ runner.temp }}/release
+          skip-decompress: true
+
+      - name: Download checksums and build metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.metadata-artifact }}
+          path: ${{ runner.temp }}/release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check SHA256SUMS
+          grep -qx "KERNEL_COMMIT=$GITHUB_SHA" build-info.txt
+          shopt -s nullglob
+          packages=(bkk-*-AK3-??????.zip)
+          (( ${#packages[@]} == 1 )) || { printf '[ERROR] 需要唯一的 AK3 安装包\n' >&2; exit 1; }
+          title=${packages[0]%.zip}
+          tag="$title-build$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          {
+            printf 'Kernel: `%s`\n\n' "$(cat kernel.release)"
+            printf 'Commit: `%s`\n\n' "$GITHUB_SHA"
+            printf '[Build](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/release-notes.txt"
+          gh release create "$tag" ./* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$title" \
+            --notes-file "$RUNNER_TEMP/release-notes.txt" --latest
