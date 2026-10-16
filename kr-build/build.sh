@@ -5,7 +5,7 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 KERNEL_DIR=$(cd -- "$KR_BUILD_DIR/.." && pwd)
 case "${1:-}" in
     -h|--help)
-        printf '用法：bash kr-build/build.sh [--check]\n环境变量：CLANG_DIR、OUT_DIR、DIST_DIR、JOBS\n'
+        printf '用法：bash kr-build/build.sh [--check]\n环境变量：CLANG_DIR、OUT_DIR、DIST_DIR、JOBS、CCACHE\n'
         exit 0 ;;
     ''|--check) ;;
     *) die "未知参数：$1" ;;
@@ -15,6 +15,11 @@ PACKAGE_VERSION=$(read_package_version)
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
     git gzip cpio rsync flock sha256sum
 check_clang
+kernel_cc=clang
+if [[ -n "${CCACHE:-}" ]]; then
+    require_commands "$CCACHE"
+    kernel_cc="$CCACHE clang"
+fi
 [[ -f "$KERNEL_DIR/KernelSU/kernel/Kbuild" ]] || die "先执行 git submodule update --init KernelSU"
 [[ $(git -C "$KERNEL_DIR/KernelSU" rev-parse --is-shallow-repository) == false ]] || \
     die "BakaSU 版本号需要完整历史：git -C KernelSU fetch --unshallow"
@@ -69,12 +74,13 @@ BRANCH=$(sed -n 's/^BRANCH=//p' "$KERNEL_DIR/build.config.constants")
 KMI_GENERATION=$(sed -n 's/^KMI_GENERATION=//p' "$KERNEL_DIR/build.config.common")
 make_kernel() {
     make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-        HOSTCC=gcc HOSTCXX=g++ BRANCH="$BRANCH" KMI_GENERATION="$KMI_GENERATION" \
+        CC="$kernel_cc" HOSTCC=gcc HOSTCXX=g++ BRANCH="$BRANCH" KMI_GENERATION="$KMI_GENERATION" \
         KCFLAGS=-D__ANDROID_COMMON_KERNEL__ "$@"
 }
 
 log "Google Clang $CLANG_RELEASE - $CLANG_PACKAGE - JOBS=$JOBS"
 log "内核名称 - bkk-$PACKAGE_VERSION"
+log "编译缓存 - ${CCACHE:-disabled}"
 make_kernel gki_defconfig
 for symbol in LRU_GEN LRU_GEN_ENABLED RCU_EXPERT RCU_NOCB_CPU RCU_LAZY \
     KSU KSU_TRACEPOINT_HOOK REKERNEL_X ANDROID_VENDOR_HOOKS KPROBES KALLSYMS_ALL \
@@ -101,6 +107,7 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     printf 'CLANG_COMMIT=%s\nCLANG_PACKAGE=%s\n' "$CLANG_COMMIT" "$CLANG_PACKAGE"
     printf 'ANYKERNEL_COMMIT=%s\nJOBS=%s\n' "$ANYKERNEL_COMMIT" "$JOBS"
     printf 'KERNEL_RELEASE=%s\n' "$(cat "$OUT_DIR/include/config/kernel.release")"
+    printf 'CCACHE=%s\n' "${CCACHE:-disabled}"
     "$CLANG_DIR/bin/clang" --version
     pahole --version
     git -C "$KERNEL_DIR" status --short

@@ -24,6 +24,11 @@ jobs:
       OUT_DIR: ${{ github.workspace }}/kr-build/out
       DIST_DIR: ${{ github.workspace }}/kr-build/dist
       JOBS: ${{ inputs.jobs }}
+      CCACHE: ccache
+      CCACHE_DIR: ${{ github.workspace }}/kr-build/.cache/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 2GiB
     steps:
       - name: Checkout kernel
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,9 +45,14 @@ jobs:
           sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bc bison build-essential ca-certificates cpio curl dwarves flex git \
+            bc bison build-essential ca-certificates ccache cpio curl dwarves flex git \
             libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
-          printf 'CLANG_DIR=%s/GoogleClang\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          source kr-build/pins.env
+          {
+            printf 'CLANG_DIR=%s/GoogleClang\n' "$RUNNER_TEMP"
+            printf 'CLANG_COMMIT=%s\nCLANG_PACKAGE=%s\n' "$CLANG_COMMIT" "$CLANG_PACKAGE"
+            printf 'ANYKERNEL_COMMIT=%s\n' "$ANYKERNEL_COMMIT"
+          } >> "$GITHUB_ENV"
           swap_kib=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
           if (( swap_kib < 8388608 )); then
             sudo fallocate -l 8G "$RUNNER_TEMP/kr-build.swap"
@@ -53,11 +63,55 @@ jobs:
           df -h .
           free -h
 
-      - name: Fetch pinned Google Clang
+      - name: Restore Google Clang cache
+        id: clang-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CLANG_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-clang-v1-${{ env.CLANG_COMMIT }}-${{ env.CLANG_PACKAGE }}
+
+      - name: Fetch or validate pinned Google Clang
         run: bash kr-build/fetch-clang.sh
 
+      - name: Save Google Clang cache
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CLANG_DIR }}
+          key: ${{ steps.clang-cache.outputs.cache-primary-key }}
+
+      - name: Cache AnyKernel3 template
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: kr-build/.cache/anykernel-${{ env.ANYKERNEL_COMMIT }}
+          key: ${{ runner.os }}-anykernel-v1-${{ env.ANYKERNEL_COMMIT }}
+
+      - name: Restore compiler cache
+        id: ccache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-sheng-ccache-v1-${{ env.CLANG_COMMIT }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-sheng-ccache-v1-${{ env.CLANG_COMMIT }}-
+
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
+
       - name: Build and package
+        id: build
         run: bash kr-build/build.sh
+
+      - name: Show compiler cache statistics
+        if: always() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
+        run: ccache --show-stats
+
+      - name: Save compiler cache
+        if: always() && !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
 
       - name: Upload AK3 and checksums
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
