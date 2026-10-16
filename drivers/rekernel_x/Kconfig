@@ -1,0 +1,9 @@
+config REKERNEL_X
+	bool "ReKernel-X support"
+	depends on ARM64 && ANDROID_BINDER_IPC && ANDROID_VENDOR_HOOKS
+	depends on CGROUP_FREEZER && NET && INET && NETFILTER
+	depends on KPROBES && KALLSYMS_ALL
+	help
+	  Build ReKernel-X into the kernel and register its Binder, signal
+	  and network hooks at boot. Userspace uses the rekernel_x2
+	  Generic Netlink family to receive events and configure rules.

@@ -76,7 +76,11 @@ static void __exit rkx_exit(void)
 	rkx_destroy_net_uid();
 }
 
+#ifdef MODULE
 module_init(rkx_init);
+#else
+late_initcall(rkx_init);
+#endif
 module_exit(rkx_exit);
 
 MODULE_LICENSE("GPL");
