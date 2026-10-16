@@ -118,7 +118,65 @@ jobs:
 
       - name: Build and package
         id: build
-        run: bash kr-build/build.sh
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 -u - "$OUT_DIR/resources.log" "$$" <<'PY' &
+          import datetime
+          import os
+          from pathlib import Path
+          import signal
+          import subprocess
+          import sys
+          import time
+
+          def stop(signum, frame):
+              raise SystemExit(0)
+
+          signal.signal(signal.SIGTERM, stop)
+          signal.signal(signal.SIGINT, stop)
+          parent = int(sys.argv[2])
+          with open(sys.argv[1], 'w', encoding='utf-8', buffering=1) as log:
+              while os.getppid() == parent:
+                  memory = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
+                  vmstat = dict(line.split() for line in Path('/proc/vmstat').read_text().splitlines())
+                  stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+                  fields = ' '.join(f'{key}={memory[key].strip()}' for key in ('MemAvailable', 'SwapTotal', 'SwapFree'))
+                  lines = [f'[RESOURCE] {stamp} - {fields} oom_kill={vmstat.get("oom_kill", "unknown")}']
+                  for source in ('/proc/pressure/memory', '/sys/fs/cgroup/memory.events'):
+                      try:
+                          lines.append(f'{source}: {Path(source).read_text().strip().replace(chr(10), "; ")}')
+                      except OSError:
+                          pass
+                  try:
+                      processes = subprocess.run(
+                          ['ps', '-eo', 'pid,ppid,comm,rss', '--sort=-rss'],
+                          text=True, capture_output=True, timeout=5, check=True,
+                      )
+                      lines.extend(processes.stdout.splitlines()[:6])
+                  except (OSError, subprocess.SubprocessError) as error:
+                      lines.append(f'ps: {error}')
+                  sample = '\n'.join(lines) + '\n'
+                  log.write(sample)
+                  print(sample, end='', flush=True)
+                  time.sleep(15)
+          PY
+          monitor_pid=$!
+          stop_monitor() {
+            kill "$monitor_pid" 2>/dev/null || true
+            wait "$monitor_pid" 2>/dev/null || true
+          }
+          trap stop_monitor EXIT
+          bash kr-build/build.sh
+
+      - name: Record kernel diagnostics
+        if: always()
+        run: |
+          mkdir -p "$OUT_DIR"
+          sudo dmesg --time-format iso > "$OUT_DIR/runner-dmesg.log" || true
+          free -h
+          df -h .
+          grep -Ei 'out of memory|oom-kill|killed process' "$OUT_DIR/runner-dmesg.log" || true
 
       - name: Show compiler cache statistics
         if: always() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
@@ -149,6 +207,8 @@ jobs:
             kr-build/out/build-info.txt
             kr-build/out/.config
             kr-build/out/.kr-build-result
+            kr-build/out/resources.log
+            kr-build/out/runner-dmesg.log
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
