@@ -6,7 +6,7 @@ case "${1:-}" in
     -h|--help) printf '用法：bash kr-build/set-version.sh\n'; exit 0 ;;
 esac
 [[ $# == 0 ]] || die "此脚本通过交互输入版本"
-require_commands python3
+require_commands python3 date
 printf '当前内核版本: bkk-%s\n' "$(read_package_version)"
 while true; do
     IFS= read -r -p '更改内核版本: ' version || die "未输入版本，未修改"
@@ -21,4 +21,4 @@ trap 'rm -f -- "$stage"' EXIT
 printf '%s\n' "$template" > "$stage"
 chmod 644 "$stage"
 mv -f -- "$stage" "$KR_BUILD_DIR/version"
-printf '内核版本: bkk-%s\n安装包: bkk-%s-AK3.zip\n' "$version" "$version"
+printf '内核版本: bkk-%s\n安装包: bkk-%s-AK3-%s.zip\n' "$version" "$version" "$(TZ=UTC-8 date +%y%m%d)"

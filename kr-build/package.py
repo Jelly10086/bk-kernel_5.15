@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from version import resolve_version_name, version_segment, version_template
 
 
@@ -155,7 +155,9 @@ def main() -> None:
             pass
     source = fetch_anykernel(args.cache_dir.resolve(), args.anykernel_commit)
     args.dist_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y%m%d-%H%M%S-%f")
+    package_date = now.astimezone(timezone(timedelta(hours=8))).strftime("%y%m%d")
     name = f"bkk-{version}-AK3"
     destination = args.dist_dir.resolve() / f"{name}-{stamp}"
     with tempfile.TemporaryDirectory(prefix=".package-", dir=args.dist_dir) as temp:
@@ -176,7 +178,7 @@ def main() -> None:
         (installer / "anykernel.sh").chmod(0o755)
         bundle = stage / name
         bundle.mkdir()
-        zip_path = bundle / f"{name}.zip"
+        zip_path = bundle / f"{name}-{package_date}.zip"
         zip_tree(installer, zip_path)
         for relative, path in inputs.items():
             shutil.copy2(path, bundle / relative)

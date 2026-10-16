@@ -26,7 +26,7 @@ bash kr-build/build.sh
 bash kr-build/set-version.sh
 ```
 
-提示 `更改内核版本:` 时输入 `CaT_13-5.15.xxx_b4`，不带 `bkk-` 前缀。`xxx` 自动跟随真实内核版本，例如生成 `bkk-CaT_13-5.15.216_b4-AK3.zip`
+提示 `更改内核版本:` 时输入 `CaT_13-5.15.xxx_b4`，不带 `bkk-` 前缀。`xxx` 自动跟随真实内核版本，例如生成 `bkk-CaT_13-5.15.216_b4-AK3-261016.zip`，日期按北京时间使用 `YYMMDD`
 
 重新构建并刷入后，`uname -r` 和 `/proc/version` 使用 `bkk-CaT_13-5.15.216_b4`，不带 GKI/Git 信息。`/proc/version` 保留编译器、构建用户和主机信息
 
