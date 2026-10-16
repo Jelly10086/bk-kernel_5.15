@@ -1,0 +1,81 @@
+name: Build sheng AK3
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 并行任务数，留空则自动计算
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sheng-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      OUT_DIR: ${{ github.workspace }}/kr-build/out
+      DIST_DIR: ${{ github.workspace }}/kr-build/dist
+      JOBS: ${{ inputs.jobs }}
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout pinned BakaSU with history
+        run: git submodule update --init KernelSU
+
+      - name: Prepare hosted runner
+        run: |
+          set -euo pipefail
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ca-certificates cpio curl dwarves flex git \
+            libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
+          printf 'CLANG_DIR=%s/GoogleClang\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          swap_kib=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
+          if (( swap_kib < 8388608 )); then
+            sudo fallocate -l 8G "$RUNNER_TEMP/kr-build.swap"
+            sudo chmod 600 "$RUNNER_TEMP/kr-build.swap"
+            sudo mkswap "$RUNNER_TEMP/kr-build.swap"
+            sudo swapon "$RUNNER_TEMP/kr-build.swap"
+          fi
+          df -h .
+          free -h
+
+      - name: Fetch pinned Google Clang
+        run: bash kr-build/fetch-clang.sh
+
+      - name: Build and package
+        run: bash kr-build/build.sh
+
+      - name: Upload AK3 and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sheng-ak3-${{ github.run_number }}
+          path: kr-build/dist/*/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sheng-build-log-${{ github.run_number }}
+          path: |
+            kr-build/out/build.log
+            kr-build/out/build-info.txt
+            kr-build/out/.config
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
