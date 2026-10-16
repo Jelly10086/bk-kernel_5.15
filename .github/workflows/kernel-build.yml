@@ -191,11 +191,32 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ steps.ccache.outputs.cache-primary-key }}
 
-      - name: Upload AK3 and checksums
+      - name: Upload flashable AK3
+        id: ak3
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sheng-ak3-${{ github.run_number }}
-          path: kr-build/dist/*/*
+          path: kr-build/dist/*/*.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare build metadata
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=("$DIST_DIR"/*/*.zip)
+          (( ${#packages[@]} == 1 )) || { printf '[ERROR] 需要唯一的 AK3 安装包\n' >&2; exit 1; }
+          bundle=$(dirname -- "${packages[0]}")
+          (cd "$bundle" && sha256sum --check SHA256SUMS)
+          mkdir -p "$RUNNER_TEMP/release-metadata"
+          cp -- "$bundle"/{SHA256SUMS,kernel.release,build-info.txt,gki.config,Module.symvers} "$RUNNER_TEMP/release-metadata/"
+
+      - name: Upload checksums and build metadata
+        id: metadata
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sheng-build-files-${{ github.run_number }}
+          path: ${{ runner.temp }}/release-metadata/*
           if-no-files-found: error
           retention-days: 14
 
