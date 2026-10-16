@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta, timezone
-from version import resolve_version_name, version_segment, version_template
+from version import package_version, version_template
 
 
 def fetch_anykernel(cache: Path, commit: str) -> Path:
@@ -137,17 +137,16 @@ def main() -> None:
     release = inputs["kernel.release"].read_text().strip()
     if len(release) > 64 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-" for c in release):
         raise ValueError(f"内核版本格式无效：{release}")
-    if release.startswith("bkk-"):
-        version = release[4:]
-        if not re.fullmatch(r"5\.15\.\d+", version_segment(version).group()):
-            raise ValueError(f"无法读取构建产物的真实内核版本：{release}")
+    release_version = re.match(r"(5\.15\.\d+)(?:[-_]|$)", release)
+    if release_version is None:
+        raise ValueError(f"内核版本必须以 5.15 数字版本开头，否则 Android init 无法启动：{release}")
+    custom_prefix = release_version.group(1) + "_bkk-"
+    if release.startswith(custom_prefix):
+        version = package_version(release, release_version.group(1))
     else:
         if "-android13-8" not in release:
             raise ValueError(f"内核版本与 android13-5.15 / KMI 8 不符：{release}")
-        release_version = re.match(r"(\d+\.\d+\.\d+)(?:-|$)", release)
-        if release_version is None:
-            raise ValueError(f"无法读取构建产物的真实内核版本：{release}")
-        version = resolve_version_name(version, release_version.group(1))
+        version = package_version(version, release_version.group(1))
     with gzip.open(image, "rb") as stream:
         if stream.read(64)[56:60] != b"ARM\x64":
             raise ValueError("Image.gz 不是 ARM64 内核镜像")

@@ -17,7 +17,15 @@ def version_segment(value: str) -> re.Match:
 def version_template(value: str) -> str:
     segment = version_segment(value)
     placeholder = segment.group().rsplit(".", 1)[0] + ".xxx"
-    return value[:segment.start()] + placeholder + value[segment.end():]
+    suffix = value[segment.end():]
+    if segment.start() == 0 and suffix.startswith("_bkk-"):
+        label = suffix[5:]
+    else:
+        prefix = re.sub(r"_\d+-$", "", value[:segment.start()])
+        label = prefix.rstrip("_-") + suffix
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*_[A-Za-z0-9][A-Za-z0-9.-]*", label):
+        raise ValueError("版本格式无效，例如 5.15.xxx_bkk-CaT_r1")
+    return f"{placeholder}_bkk-{label}"
 
 
 def resolve_version_name(value: str, kernel_version: str) -> str:
@@ -25,6 +33,20 @@ def resolve_version_name(value: str, kernel_version: str) -> str:
     if not re.fullmatch(r"\d+\.\d+\.\d+", kernel_version):
         raise ValueError(f"真实内核版本无效：{kernel_version}")
     return value[:segment.start()] + kernel_version + value[segment.end():]
+
+
+def kernel_release(value: str, kernel_version: str) -> str:
+    release = resolve_version_name(version_template(value), kernel_version)
+    if len(release) > 64:
+        raise ValueError("内核版本超过 64 字符，请缩短名称")
+    return release
+
+
+def package_version(value: str, kernel_version: str) -> str:
+    release = kernel_release(value, kernel_version)
+    label = release.split("_bkk-", 1)[1]
+    brand, revision = label.rsplit("_", 1)
+    return f"{brand}_13-{kernel_version}_{revision}"
 
 
 def source_kernel_version() -> str:
@@ -41,12 +63,16 @@ def source_kernel_version() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="解析内核显示版本")
     parser.add_argument("value")
-    parser.add_argument("--template", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--template", action="store_true")
+    mode.add_argument("--release", action="store_true")
     args = parser.parse_args()
     if args.template:
         print(version_template(args.value))
+    elif args.release:
+        print(kernel_release(args.value, source_kernel_version()))
     else:
-        print(resolve_version_name(args.value, source_kernel_version()))
+        print(package_version(args.value, source_kernel_version()))
 
 
 if __name__ == "__main__":

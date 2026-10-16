@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: '内核版本: 如CaT_13-5.15.xxx_b4，不要带bkk-前缀 xxx为占位符 留空使用仓库版本'
+        description: '内核版本: 如5.15.xxx_bkk-CaT_b4，xxx为占位符 留空使用仓库版本'
         required: false
         default: ''
         type: string

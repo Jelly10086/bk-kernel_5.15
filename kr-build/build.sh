@@ -62,8 +62,7 @@ trap build_failed ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 PACKAGE_VERSION=$(read_package_version)
-kernel_release="bkk-$PACKAGE_VERSION"
-(( ${#kernel_release} <= 64 )) || die "内核版本超过 64 字符，请缩短 kr-build/version 中的名称"
+kernel_release=$(python3 "$KR_BUILD_DIR/version.py" --release "$PACKAGE_VERSION")
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
     git gzip cpio rsync flock sha256sum
 check_clang
@@ -132,7 +131,7 @@ make_kernel() {
 }
 
 log "Google Clang $CLANG_RELEASE - $CLANG_PACKAGE - JOBS=$JOBS"
-log "内核名称 - bkk-$PACKAGE_VERSION"
+log "内核名称 - $kernel_release"
 log "编译缓存 - ${CCACHE:-disabled}"
 phase=生成配置
 make_kernel gki_defconfig
