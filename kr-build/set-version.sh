@@ -3,19 +3,25 @@ set -Eeuo pipefail
 
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 case "${1:-}" in
-    -h|--help) printf '用法：bash kr-build/set-version.sh\n'; exit 0 ;;
+    -h|--help) printf '用法：bash kr-build/set-version.sh [版本]\n'; exit 0 ;;
 esac
-[[ $# == 0 ]] || die "此脚本通过交互输入版本"
+[[ $# -le 1 ]] || die "参数过多"
 require_commands python3 date
 printf '当前内核版本: bkk-%s\n' "$(read_package_version)"
-while true; do
-    IFS= read -r -p '更改内核版本: ' version || die "未输入版本，未修改"
-    if template=$(python3 "$KR_BUILD_DIR/version.py" --template "$version" 2>/dev/null); then
-        version=$(python3 "$KR_BUILD_DIR/version.py" "$template")
-        break
-    fi
-    printf '格式示例：CaT_13-5.15.xxx_b3，不带 bkk- 前缀\n' >&2
-done
+if (( $# == 1 )); then
+    template=$(python3 "$KR_BUILD_DIR/version.py" --template "$1")
+    version=$(python3 "$KR_BUILD_DIR/version.py" "$template")
+else
+    while true; do
+        IFS= read -r -p '更改内核版本: ' version || die "未输入版本，未修改"
+        if template=$(python3 "$KR_BUILD_DIR/version.py" --template "$version" 2>/dev/null); then
+            version=$(python3 "$KR_BUILD_DIR/version.py" "$template")
+            break
+        fi
+        printf '格式示例：CaT_13-5.15.xxx_b3，不带 bkk- 前缀\n' >&2
+    done
+fi
+(( ${#version} + 4 <= 64 )) || die "内核版本超过 64 字符，请缩短名称"
 stage=$(mktemp "$KR_BUILD_DIR/.version.XXXXXX")
 trap 'rm -f -- "$stage"' EXIT
 printf '%s\n' "$template" > "$stage"

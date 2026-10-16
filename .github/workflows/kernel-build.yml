@@ -1,8 +1,13 @@
-name: Build sheng AK3
+name: build bkk
 
 on:
   workflow_dispatch:
     inputs:
+      version_name:
+        description: '内核版本: 如CaT_13-5.15.xxx_b4，不要带bkk-前缀 xxx为占位符 留空使用仓库版本'
+        required: false
+        default: ''
+        type: string
       jobs:
         description: 并行任务数，留空则自动计算
         required: false
@@ -35,6 +40,12 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Set kernel version
+        if: inputs.version_name != ''
+        env:
+          PACKAGE_VERSION: ${{ inputs.version_name }}
+        run: bash kr-build/set-version.sh "$PACKAGE_VERSION"
 
       - name: Checkout pinned BakaSU with history
         run: git submodule update --init KernelSU

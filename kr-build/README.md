@@ -28,6 +28,8 @@ bash kr-build/set-version.sh
 
 提示 `更改内核版本:` 时输入 `CaT_13-5.15.xxx_b4`，不带 `bkk-` 前缀。`xxx` 自动跟随真实内核版本，例如生成 `bkk-CaT_13-5.15.216_b4-AK3-261016.zip`，日期按北京时间使用 `YYMMDD`
 
+GitHub Actions 的 `build bkk` 在启动时可填写 `version_name`，调用同一脚本改版本；留空使用仓库版本
+
 重新构建并刷入后，`uname -r` 和 `/proc/version` 使用 `bkk-CaT_13-5.15.216_b4`，不带 GKI/Git 信息。`/proc/version` 保留编译器、构建用户和主机信息
 
 `CLANG_DIR`、`OUT_DIR`、`DIST_DIR`、`JOBS` 可通过环境变量指定。默认输出到 `kr-build/out`，保留增量产物；更换工具链时使用新的 `OUT_DIR`。
