@@ -11,6 +11,56 @@ case "${1:-}" in
     *) die "未知参数：$1" ;;
 esac
 [[ $# -le 1 ]] || die "参数过多"
+started_at=$SECONDS
+phase=依赖检查
+build_succeeded=0
+log_ready=0
+result_ready=0
+failure_line=
+run_id=$(date -u +%Y%m%dT%H%M%S)-$$
+write_result() {
+    printf '%s %s %s\n' "$run_id" "$1" "$2" > "$OUT_DIR/.kr-build-result.tmp"
+    mv -f -- "$OUT_DIR/.kr-build-result.tmp" "$OUT_DIR/.kr-build-result"
+}
+finish_build() {
+    local rc=$? elapsed state hint=
+    trap - EXIT ERR INT TERM
+    set +e
+    elapsed=$(( SECONDS - started_at ))
+    if (( log_ready )); then
+        hint=" - 日志：$OUT_DIR/build.log"
+    fi
+    if (( rc == 0 && build_succeeded == 1 )); then
+        state=SUCCESS
+        printf '[OK] 构建完成 - 用时 %s秒%s\n' "$elapsed" "$hint"
+    elif (( rc == 130 || rc == 143 )); then
+        state=INTERRUPTED
+        printf '[WARN] 构建已中断 - 阶段：%s - 退出码：%s - 用时 %s秒%s\n' "$phase" "$rc" "$elapsed" "$hint" >&2
+    else
+        state=FAILED
+        (( rc != 0 )) || rc=1
+        printf '[FAILED] 构建失败 - 阶段：%s - 退出码：%s - 行：%s - 用时 %s秒%s\n' \
+            "$phase" "$rc" "${failure_line:-未知}" "$elapsed" "$hint" >&2
+    fi
+    if (( result_ready )); then
+        write_result "$state" "$rc"
+    fi
+    if (( log_ready )); then
+        exec 1>&3 2>&4
+        exec 3>&- 4>&-
+        wait "$tee_pid"
+    fi
+    exit "$rc"
+}
+build_failed() {
+    local rc=$?
+    failure_line=${BASH_LINENO[0]}
+    exit "$rc"
+}
+trap finish_build EXIT
+trap build_failed ERR
+trap 'exit 130' INT
+trap 'exit 143' TERM
 PACKAGE_VERSION=$(read_package_version)
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
     git gzip cpio rsync flock sha256sum
@@ -30,6 +80,7 @@ pkg-config --exists libelf openssl || die "缺少 libelf-dev 或 libssl-dev"
 [[ $(uname -m) == x86_64 ]] || die "此 GoogleClang 包需要 x86_64 Linux"
 if [[ "${1:-}" == --check ]]; then
     log "依赖与工具链检查通过 - $CLANG_PACKAGE"
+    trap - EXIT ERR INT TERM
     exit 0
 fi
 
@@ -49,13 +100,12 @@ fi
 mkdir -p -- "$OUT_DIR"
 exec 9>"$OUT_DIR/.kr-build.lock"
 flock -n 9 || die "另一个构建正在使用 $OUT_DIR"
+result_ready=1
+write_result RUNNING 0
+exec 3>&1 4>&2
 exec > >(tee -a "$OUT_DIR/build.log") 2>&1
-build_failed() {
-    local rc=$?
-    printf '[ERROR] 构建失败 - 第 %s 行 - 日志：%s/build.log\n' "${BASH_LINENO[0]}" "$OUT_DIR" >&2
-    exit "$rc"
-}
-trap build_failed ERR
+tee_pid=$!
+log_ready=1
 
 fingerprint="$KERNEL_DIR|$CLANG_DIR|$CLANG_COMMIT|arm64"
 if [[ -f "$OUT_DIR/.kr-build-toolchain" ]]; then
@@ -81,6 +131,7 @@ make_kernel() {
 log "Google Clang $CLANG_RELEASE - $CLANG_PACKAGE - JOBS=$JOBS"
 log "内核名称 - bkk-$PACKAGE_VERSION"
 log "编译缓存 - ${CCACHE:-disabled}"
+phase=生成配置
 make_kernel gki_defconfig
 for symbol in LRU_GEN LRU_GEN_ENABLED RCU_EXPERT RCU_NOCB_CPU RCU_LAZY \
     KSU KSU_TRACEPOINT_HOOK REKERNEL_X ANDROID_VENDOR_HOOKS KPROBES KALLSYMS_ALL \
@@ -94,7 +145,9 @@ fi
 grep -E '^CONFIG_CMDLINE=".*rcu_nocbs=all([[:space:]"]|$)' "$OUT_DIR/.config" >/dev/null || \
     die "缺少 rcu_nocbs=all"
 log "编译 Image.gz 与 GKI 模块"
+phase=编译和链接
 make_kernel -j"$JOBS" Image.gz modules
+phase=校验产物
 gzip -t "$OUT_DIR/arch/arm64/boot/Image.gz"
 "$CLANG_DIR/bin/llvm-readelf" -S "$OUT_DIR/vmlinux" > "$OUT_DIR/vmlinux-sections.txt"
 grep -q '\.BTF[[:space:]]' "$OUT_DIR/vmlinux-sections.txt" || die "vmlinux 缺少 BTF"
@@ -112,4 +165,6 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     pahole --version
     git -C "$KERNEL_DIR" status --short
 } > "$OUT_DIR/build-info.txt"
+phase=AK3打包
 PACKAGE_VERSION="$PACKAGE_VERSION" OUT_DIR="$OUT_DIR" DIST_DIR="$DIST_DIR" bash "$KR_BUILD_DIR/pack.sh"
+build_succeeded=1

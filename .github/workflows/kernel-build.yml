@@ -130,6 +130,7 @@ jobs:
             kr-build/out/build.log
             kr-build/out/build-info.txt
             kr-build/out/.config
+            kr-build/out/.kr-build-result
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
