@@ -28,7 +28,7 @@ bash kr-build/set-version.sh
 
 提示 `更改内核版本:` 时输入 `5.15.xxx_bkk-CaT_b4`，后缀也可用 `r1`、`P2` 等。`xxx` 自动跟随真实内核版本；AK3 仍生成 `bkk-CaT_13-5.15.216_b4-AK3-261016.zip`，日期按北京时间使用 `YYMMDD`
 
-`uname -r` 和 `/proc/version` 使用 `5.15.216_bkk-CaT_b4`，保留 Android init 必需的数字前缀
+构建时自动追加 `-c<Git短提交号>`，例如 `5.15.216_bkk-CaT_b4-c1302066c856f`；有未提交改动时追加 `-dirty`。AK3 包名不加提交号
 
 GitHub Actions 的 `build bkk` 在启动时可填写 `version_name`，调用同一脚本改版本；留空使用仓库版本
 

@@ -142,7 +142,8 @@ def main() -> None:
         raise ValueError(f"内核版本必须以 5.15 数字版本开头，否则 Android init 无法启动：{release}")
     custom_prefix = release_version.group(1) + "_bkk-"
     if release.startswith(custom_prefix):
-        version = package_version(release, release_version.group(1))
+        package_release = re.sub(r"-c[0-9a-f]{12,40}(?:-dirty)?$", "", release)
+        version = package_version(package_release, release_version.group(1))
     else:
         if "-android13-8" not in release:
             raise ValueError(f"内核版本与 android13-5.15 / KMI 8 不符：{release}")

@@ -35,8 +35,12 @@ def resolve_version_name(value: str, kernel_version: str) -> str:
     return value[:segment.start()] + kernel_version + value[segment.end():]
 
 
-def kernel_release(value: str, kernel_version: str) -> str:
+def kernel_release(value: str, kernel_version: str, commit: str | None = None) -> str:
     release = resolve_version_name(version_template(value), kernel_version)
+    if commit is not None:
+        if not re.fullmatch(r"[0-9a-f]{12,40}(?:-dirty)?", commit):
+            raise ValueError("Git 提交号格式无效")
+        release += f"-c{commit}"
     if len(release) > 64:
         raise ValueError("内核版本超过 64 字符，请缩短名称")
     return release
@@ -63,14 +67,17 @@ def source_kernel_version() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="解析内核显示版本")
     parser.add_argument("value")
+    parser.add_argument("--commit")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--template", action="store_true")
     mode.add_argument("--release", action="store_true")
     args = parser.parse_args()
+    if args.commit is not None and not args.release:
+        parser.error("--commit 需要与 --release 一起使用")
     if args.template:
         print(version_template(args.value))
     elif args.release:
-        print(kernel_release(args.value, source_kernel_version()))
+        print(kernel_release(args.value, source_kernel_version(), args.commit))
     else:
         print(package_version(args.value, source_kernel_version()))
 

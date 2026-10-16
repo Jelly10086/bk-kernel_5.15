@@ -62,7 +62,11 @@ trap build_failed ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 PACKAGE_VERSION=$(read_package_version)
-kernel_release=$(python3 "$KR_BUILD_DIR/version.py" --release "$PACKAGE_VERSION")
+source_commit=$(git -C "$KERNEL_DIR" rev-parse --short=12 HEAD)
+if [[ -n $(git -C "$KERNEL_DIR" status --porcelain) ]]; then
+    source_commit+="-dirty"
+fi
+kernel_release=$(python3 "$KR_BUILD_DIR/version.py" --release "$PACKAGE_VERSION" --commit "$source_commit")
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
     git gzip cpio rsync flock sha256sum
 check_clang
