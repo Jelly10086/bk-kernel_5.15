@@ -39,7 +39,6 @@ static void rkx_binder_alloc_new_buf_locked_vh(void *data, size_t size, struct b
 		|| (alloc->free_async_space < RKX_WARN_AHEAD_SPACE))) {
 		rcu_read_lock();
 		p = find_task_by_vpid(alloc->pid);
-		rcu_read_unlock();
 		if (p != NULL && rkx_is_frozen(p)) {
 			rkx_log_debug("Binder Free buffer full! from=%d | target=%d\n", task_uid(current).val, task_uid(p).val);
 			if (rkx_netlink_ready()) {
@@ -59,6 +58,7 @@ static void rkx_binder_alloc_new_buf_locked_vh(void *data, size_t size, struct b
 				rkx_send_message(&event);
 			}
 		}
+		rcu_read_unlock();
 	}
 }
 
