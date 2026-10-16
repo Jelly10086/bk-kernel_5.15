@@ -1,0 +1,65 @@
+name: Import clean kernel
+
+on:
+  push:
+    branches: [sync]
+    paths: [.github/workflows/import-kernel.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: import-clean-kernel
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SOURCE_COMMIT: 1ceae02e2db96f9dd761eb80d98b9f4b66234663
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Fetch Google history
+        shell: bash
+        run: |
+          git clone --bare --single-branch --no-tags --branch android13-5.15 \
+            https://android.googlesource.com/kernel/common "$RUNNER_TEMP/kernel.git"
+          cd "$RUNNER_TEMP/kernel.git"
+          test "$(git rev-parse --is-shallow-repository)" = false
+          git merge-base --is-ancestor "$SOURCE_COMMIT" android13-5.15
+
+      - name: Push history in batches
+        shell: bash
+        working-directory: ${{ runner.temp }}/kernel.git
+        run: |
+          git config gc.auto 0
+          git remote add github "https://github.com/${GITHUB_REPOSITORY}.git"
+          git config credential.https://github.com.helper \
+            '!f() { printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; }; f'
+          staging=$(git ls-remote github refs/heads/history-import)
+          if [ -n "$staging" ]; then
+            git fetch --no-tags github refs/heads/history-import:refs/remotes/github/history-import
+          fi
+          git rev-list --first-parent --reverse "$SOURCE_COMMIT" | awk 'NR % 5000 == 0' > "$RUNNER_TEMP/checkpoints"
+          printf '%s\n' "$SOURCE_COMMIT" >> "$RUNNER_TEMP/checkpoints"
+          while read -r commit; do
+            if git show-ref --verify --quiet refs/remotes/github/history-import && \
+               git merge-base --is-ancestor "$commit" refs/remotes/github/history-import; then
+              continue
+            fi
+            git push github "$commit:refs/heads/history-import"
+          done < "$RUNNER_TEMP/checkpoints"
+          git push github "$SOURCE_COMMIT:refs/heads/android13-5.15"
+          git push github --delete history-import
+
+      - name: Verify imported commit
+        shell: bash
+        working-directory: ${{ runner.temp }}/kernel.git
+        run: |
+          actual=$(git ls-remote github refs/heads/android13-5.15 | cut -f1)
+          test "$actual" = "$SOURCE_COMMIT"
+          printf 'Commit: `%s`\n\nHistory: %s commits\n' \
+            "$SOURCE_COMMIT" "$(git rev-list --count "$SOURCE_COMMIT")" >> "$GITHUB_STEP_SUMMARY"
