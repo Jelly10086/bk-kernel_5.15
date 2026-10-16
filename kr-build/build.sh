@@ -125,6 +125,7 @@ KMI_GENERATION=$(sed -n 's/^KMI_GENERATION=//p' "$KERNEL_DIR/build.config.common
 make_kernel() {
     make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
         CC="$kernel_cc" HOSTCC=gcc HOSTCXX=g++ BRANCH="$BRANCH" KMI_GENERATION="$KMI_GENERATION" \
+        KBUILD_KERNEL_DISPLAY_NAME="bkk-$PACKAGE_VERSION" \
         KCFLAGS=-D__ANDROID_COMMON_KERNEL__ "$@"
 }
 
@@ -160,6 +161,7 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     printf 'CLANG_COMMIT=%s\nCLANG_PACKAGE=%s\n' "$CLANG_COMMIT" "$CLANG_PACKAGE"
     printf 'ANYKERNEL_COMMIT=%s\nJOBS=%s\n' "$ANYKERNEL_COMMIT" "$JOBS"
     printf 'KERNEL_RELEASE=%s\n' "$(cat "$OUT_DIR/include/config/kernel.release")"
+    printf 'KERNEL_DISPLAY_NAME=bkk-%s\n' "$PACKAGE_VERSION"
     printf 'CCACHE=%s\n' "${CCACHE:-disabled}"
     "$CLANG_DIR/bin/clang" --version
     pahole --version

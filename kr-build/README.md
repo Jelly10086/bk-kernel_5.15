@@ -20,13 +20,15 @@ bash kr-build/build.sh
 
 默认使用 `~/project/GoogleClang` 和 `gki_defconfig`
 
-更改显示名称和安装包名：
+更改“关于本机”的内核名称和安装包名：
 
 ```bash
 bash kr-build/set-version.sh
 ```
 
 提示 `更改内核版本:` 时输入 `CaT_13-5.15.xxx_b4`，不带 `bkk-` 前缀。`xxx` 自动跟随真实内核版本，例如生成 `bkk-CaT_13-5.15.216_b4-AK3.zip`
+
+重新构建并刷入后生效。`uname -r` 保留 GKI/Git 信息，`/proc/version` 显示自定义名称并保留编译信息
 
 `CLANG_DIR`、`OUT_DIR`、`DIST_DIR`、`JOBS` 可通过环境变量指定。默认输出到 `kr-build/out`，保留增量产物；更换工具链时使用新的 `OUT_DIR`。
 

@@ -6,11 +6,15 @@
 #include <linux/seq_file.h>
 #include <linux/utsname.h>
 
+#ifndef KERNEL_DISPLAY_NAME
+#define KERNEL_DISPLAY_NAME utsname()->release
+#endif
+
 static int version_proc_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, linux_proc_banner,
 		utsname()->sysname,
-		utsname()->release,
+		KERNEL_DISPLAY_NAME,
 		utsname()->version);
 	return 0;
 }
