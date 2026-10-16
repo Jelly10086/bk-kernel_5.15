@@ -22,5 +22,6 @@ PATCH_VBMETA_FLAG=0
 NO_VBMETA_PARTITION_PATCH=1
 
 . tools/ak3-core.sh
+ui_print "kernel by Github@Jelly10086"
 split_boot
 flash_boot
