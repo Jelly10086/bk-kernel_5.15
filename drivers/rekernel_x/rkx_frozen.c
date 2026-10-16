@@ -13,6 +13,7 @@
 #include <linux/cgroup.h>
 #include <linux/version.h>
 #include <linux/sched.h>
+#include <linux/sched/jobctl.h>
 
 static inline bool rkx_is_frozen_state_compatible(struct task_struct *task)
 {
