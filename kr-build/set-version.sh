@@ -3,7 +3,13 @@ set -Eeuo pipefail
 
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 case "${1:-}" in
-    -h|--help) printf '用法：bash kr-build/set-version.sh [版本]\n'; exit 0 ;;
+    -h|--help) printf '用法：bash kr-build/set-version.sh [--print] [版本]\n--print 只输出版本模板，不修改文件\n'; exit 0 ;;
+    --print)
+        [[ $# == 2 ]] || die "--print 需要一个版本参数"
+        template=$(python3 "$KR_BUILD_DIR/version.py" --template "$2")
+        python3 "$KR_BUILD_DIR/version.py" --release "$template" >/dev/null
+        printf '%s\n' "$template"
+        exit 0 ;;
 esac
 [[ $# -le 1 ]] || die "参数过多"
 require_commands python3 date

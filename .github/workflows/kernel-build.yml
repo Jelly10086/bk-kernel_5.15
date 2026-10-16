@@ -45,7 +45,9 @@ jobs:
         if: inputs.version_name != ''
         env:
           PACKAGE_VERSION: ${{ inputs.version_name }}
-        run: bash kr-build/set-version.sh "$PACKAGE_VERSION"
+        run: |
+          version=$(bash kr-build/set-version.sh --print "$PACKAGE_VERSION")
+          printf 'PACKAGE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
 
       - name: Checkout pinned BakaSU with history
         run: git submodule update --init KernelSU

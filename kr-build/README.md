@@ -30,7 +30,7 @@ bash kr-build/set-version.sh
 
 构建时自动追加 `-c<Git短提交号>`，例如 `5.15.216_bkk-CaT_b4-c1302066c856f`；有未提交改动时追加 `-dirty`。AK3 包名不加提交号
 
-GitHub Actions 的 `build bkk` 在启动时可填写 `version_name`，调用同一脚本改版本；留空使用仓库版本
+GitHub Actions 的 `build bkk` 在启动时可填写 `version_name`，只覆盖本次构建的版本；留空使用仓库版本
 
 `CLANG_DIR`、`OUT_DIR`、`DIST_DIR`、`JOBS` 可通过环境变量指定。默认输出到 `kr-build/out`，保留增量产物；更换工具链时使用新的 `OUT_DIR`。
 

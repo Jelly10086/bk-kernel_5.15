@@ -16,8 +16,11 @@ valid_package_version() {
 
 read_package_version() {
     local version
-    version=$(cat "$KR_BUILD_DIR/version") || die "无法读取 kr-build/version"
-    valid_package_version "$version" || die "kr-build/version 中的版本格式无效"
+    version=${PACKAGE_VERSION:-}
+    if [[ -z "$version" ]]; then
+        version=$(cat "$KR_BUILD_DIR/version") || die "无法读取 kr-build/version"
+    fi
+    valid_package_version "$version" || die "内核版本格式无效"
     python3 "$KR_BUILD_DIR/version.py" "$version"
 }
 
