@@ -62,6 +62,8 @@ trap build_failed ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 PACKAGE_VERSION=$(read_package_version)
+kernel_release="bkk-$PACKAGE_VERSION"
+(( ${#kernel_release} <= 64 )) || die "内核版本超过 64 字符，请缩短 kr-build/version 中的名称"
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
     git gzip cpio rsync flock sha256sum
 check_clang
@@ -118,9 +120,6 @@ printf '%s\n' "$fingerprint" > "$OUT_DIR/.kr-build-toolchain"
 export PATH="$CLANG_DIR/bin:$PATH"
 export KBUILD_BUILD_USER=${KBUILD_BUILD_USER:-Jelly10086}
 export KBUILD_BUILD_HOST=${KBUILD_BUILD_HOST:-kr-build}
-release_name=$(python3 "$KR_BUILD_DIR/version.py" --short "$PACKAGE_VERSION")
-host_tag=$(printf '%s' "$KBUILD_BUILD_HOST" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | cut -c1-8)
-release_suffix="-bkk-$release_name-c${CLANG_RELEASE%%.*}-$host_tag"
 export KBUILD_BUILD_TIMESTAMP=${KBUILD_BUILD_TIMESTAMP:-$(git -C "$KERNEL_DIR" show -s --format=%cD HEAD)}
 export KBUILD_BUILD_VERSION=${KBUILD_BUILD_VERSION:-1}
 BRANCH=$(sed -n 's/^BRANCH=//p' "$KERNEL_DIR/build.config.constants")
@@ -128,8 +127,7 @@ KMI_GENERATION=$(sed -n 's/^KMI_GENERATION=//p' "$KERNEL_DIR/build.config.common
 make_kernel() {
     make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
         CC="$kernel_cc" HOSTCC=gcc HOSTCXX=g++ BRANCH="$BRANCH" KMI_GENERATION="$KMI_GENERATION" \
-        KBUILD_KERNEL_DISPLAY_NAME="bkk-$PACKAGE_VERSION" \
-        KBUILD_LOCALVERSION_SUFFIX="$release_suffix" \
+        KERNELRELEASE="$kernel_release" \
         KCFLAGS=-D__ANDROID_COMMON_KERNEL__ "$@"
 }
 
@@ -150,10 +148,8 @@ fi
 grep -E '^CONFIG_CMDLINE=".*rcu_nocbs=all([[:space:]"]|$)' "$OUT_DIR/.config" >/dev/null || \
     die "缺少 rcu_nocbs=all"
 make_kernel -s include/config/kernel.release
-kernel_release=$(cat "$OUT_DIR/include/config/kernel.release")
-[[ "$kernel_release" == *"-android13-8-"* && "$kernel_release" == *"$release_suffix" ]] || \
-    die "内核版本缺少 GKI 标识或构建名称：$kernel_release"
-(( ${#kernel_release} <= 64 )) || die "内核版本超过 64 字符，请缩短 kr-build/version 中的名称"
+[[ $(cat "$OUT_DIR/include/config/kernel.release") == "$kernel_release" ]] || \
+    die "生成的内核版本与 kr-build/version 不符"
 log "内核版本 - $kernel_release"
 log "编译 Image.gz 与 GKI 模块"
 phase=编译和链接
@@ -171,7 +167,6 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     printf 'CLANG_COMMIT=%s\nCLANG_PACKAGE=%s\n' "$CLANG_COMMIT" "$CLANG_PACKAGE"
     printf 'ANYKERNEL_COMMIT=%s\nJOBS=%s\n' "$ANYKERNEL_COMMIT" "$JOBS"
     printf 'KERNEL_RELEASE=%s\n' "$(cat "$OUT_DIR/include/config/kernel.release")"
-    printf 'KERNEL_DISPLAY_NAME=bkk-%s\n' "$PACKAGE_VERSION"
     printf 'CCACHE=%s\n' "${CCACHE:-disabled}"
     "$CLANG_DIR/bin/clang" --version
     pahole --version

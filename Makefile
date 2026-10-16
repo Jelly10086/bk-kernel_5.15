@@ -1313,9 +1313,13 @@ targets := vmlinux
 # make sure no implicit rule kicks in
 $(sort $(vmlinux-deps) $(subdir-modorder)): descend ;
 
+ifeq ($(origin KERNELRELEASE),command line)
+filechk_kernel.release = echo "$(KERNELRELEASE)"
+else
 filechk_kernel.release = \
 	echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion \
 		--save-tag $(srctree) $(BRANCH) $(KMI_GENERATION))"
+endif
 
 # Store (new) KERNELRELEASE string in include/config/kernel.release
 include/config/kernel.release: FORCE
@@ -2076,8 +2080,12 @@ checkstack:
 	$(PERL) $(srctree)/scripts/checkstack.pl $(CHECKSTACK_ARCH)
 
 kernelrelease:
+ifeq ($(origin KERNELRELEASE),command line)
+	@echo "$(KERNELRELEASE)"
+else
 	@echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion \
 		$(srctree) $(BRANCH) $(KMI_GENERATION))"
+endif
 
 kernelversion:
 	@echo $(KERNELVERSION)
