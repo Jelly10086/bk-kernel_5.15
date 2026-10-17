@@ -83,11 +83,36 @@ class RuntimeTests(unittest.TestCase):
         status = self.root / 'sysfs/status'
         status.parent.mkdir()
         for kernel_state, ui_state in [('boost', 'active'), ('thermal', 'cooling'), ('idle', 'warming')]:
-            status.write_text(f'state={kernel_state}\n')
+            status.write_text(f'mode=1\nstate={kernel_state}\ncluster1_floor=1651200\n')
             result = self.run_ctl('get-all')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('kernel_compatible=1\n', result.stdout)
             self.assertIn(f'runtime_mode={ui_state}\n', result.stdout)
+        self.assertFalse(self.calls.exists())
+
+    def test_ui_waits_for_the_selected_mode_and_actual_votes(self):
+        (self.module / 'build-info.txt').write_text('KERNEL_RELEASE=5.15.216_bkk-CaT_r1\n')
+        self.state.mkdir()
+        status = self.root / 'sysfs/status'
+        status.parent.mkdir()
+        cases = [
+            ('manual', 0, 'disabled', 0, 'pending'),
+            ('manual', 1, 'boost', 1651200, 'pending'),
+            ('auto', 2, 'boost', 1651200, 'pending'),
+            ('auto', 1, 'boost', 0, 'pending'),
+            ('manual', 2, 'idle', 0, 'pending'),
+            ('manual', 2, 'boost', 1651200, 'active'),
+            ('auto', 1, 'idle', 0, 'warming'),
+            ('manual', 2, 'thermal', 0, 'cooling'),
+            ('manual', 0, 'screen_off', 0, 'screen_off'),
+        ]
+        for configured, applied, reason, floor, expected in cases:
+            with self.subTest(configured=configured, applied=applied, reason=reason, floor=floor):
+                (self.state / 'control.conf').write_text(f'mode={configured}\n')
+                status.write_text(f'mode={applied}\nstate={reason}\ncluster1_floor={floor}\n')
+                result = self.run_ctl('get-all')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'runtime_mode={expected}\n', result.stdout)
         self.assertFalse(self.calls.exists())
 
     def test_log_names_reject_traversal_before_resolving_exporter(self):

@@ -150,6 +150,7 @@ daemon() {
 }
 
 get_all() {
+    "$BB" flock 9
     read_mode
     CURRENT_KERNEL=$(uname -r)
     TARGET_KERNEL=$(sed -n 's/^KERNEL_RELEASE=//p' "$MODDIR/build-info.txt")
@@ -159,15 +160,30 @@ get_all() {
         COMPATIBLE=1
         RUNTIME=disabled
         if [ "$MODE" != disabled ]; then
-            RUNTIME=$(sed -n 's/^state=//p' "$STATUS" 2>/dev/null || true)
+            SNAPSHOT=$(cat "$STATUS" 2>/dev/null || true)
+            RUNTIME=$(printf '%s\n' "$SNAPSHOT" | sed -n 's/^state=//p')
+            APPLIED_MODE=$(printf '%s\n' "$SNAPSHOT" | sed -n 's/^mode=//p')
+            case "$MODE" in auto) EXPECTED_MODE=1 ;; manual) EXPECTED_MODE=2 ;; esac
             case "$RUNTIME" in
-                boost) RUNTIME=active ;;
-                idle) RUNTIME=warming ;;
+                boost|idle|disabled)
+                    if [ "$APPLIED_MODE" != "$EXPECTED_MODE" ]; then
+                        RUNTIME=pending
+                    elif [ "$RUNTIME" = boost ]; then
+                        # 切换模式会先撤销旧投票，只有频率下限生效才显示提升
+                        HAS_FLOOR=$(printf '%s\n' "$SNAPSHOT" | awk -F= '/^cluster[0-9]+_floor=/ && $2 > 0 {found=1} END {print found+0}')
+                        if [ "$HAS_FLOOR" = 1 ]; then RUNTIME=active; else RUNTIME=pending; fi
+                    elif [ "$MODE" = auto ] && [ "$RUNTIME" = idle ]; then
+                        RUNTIME=warming
+                    else
+                        RUNTIME=pending
+                    fi
+                    ;;
                 thermal) RUNTIME=cooling ;;
                 '') RUNTIME=inactive ;;
             esac
         fi
     fi
+    "$BB" flock -u 9
     CPU_TEMP=未读取
     BATTERY_TEMP=未读取
     if find_sensors; then

@@ -49,12 +49,18 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.ComposeViewport
+import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.await
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bkkernel.control.generated.resources.Res
 import org.bkkernel.control.generated.resources.save_log
 import org.jetbrains.compose.resources.painterResource
@@ -142,6 +148,7 @@ private fun runtimeLabel(mode: String): String = when (mode) {
     "cooling" -> "温控冷却中"
     "disabled" -> "未启用"
     "inactive" -> "待机"
+    "pending" -> "等待内核应用策略"
     "waiting_kernel" -> "等待启动配套内核"
     "screen_off" -> "熄屏暂停提升"
     "lease_expired" -> "调用已超时，提升已撤销"
@@ -219,6 +226,7 @@ private fun ControlScreen() {
     var state by remember { mutableStateOf(ControlState()) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val commands = remember { Mutex() }
     val pagerState = rememberPagerState(pageCount = { 2 })
     val mainPagerState = rememberMainPagerState(pagerState, bkReducedMotion())
 
@@ -226,33 +234,52 @@ private fun ControlScreen() {
         mainPagerState.syncPage()
     }
 
+    suspend fun readState(reportErrors: Boolean) {
+        try {
+            val result = runBkctl("get-all")
+            if (result.errno == 0) {
+                state = parseState(result.stdout)
+            } else if (reportErrors) {
+                bkToast(result.stderr.ifBlank { "读取失败：${result.errno}" })
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (reportErrors) bkToast(error.message ?: "KernelSU 接口不可用")
+        }
+    }
+
     fun refresh() {
+        if (busy) return
+        busy = true
         scope.launch {
-            busy = true
-            runCatching { runBkctl("get-all") }
-                .onSuccess {
-                    if (it.errno == 0) {
-                        state = parseState(it.stdout)
-                    } else {
-                        bkToast(it.stderr.ifBlank { "读取失败：${it.errno}" })
-                    }
-                }
-                .onFailure { bkToast(it.message ?: "KernelSU 接口不可用") }
-            busy = false
+            try {
+                commands.withLock { readState(reportErrors = true) }
+            } finally {
+                busy = false
+            }
         }
     }
 
     fun setValue(key: String, value: String) {
+        if (busy) return
+        busy = true
         scope.launch {
-            busy = true
-            runCatching { runBkctl("set $key $value") }
-                .onSuccess {
-                    if (it.errno != 0) bkToast(it.stderr.ifBlank { "设置失败：${it.errno}" })
+            try {
+                commands.withLock {
+                    try {
+                        val result = runBkctl("set $key $value")
+                        if (result.errno != 0) bkToast(result.stderr.ifBlank { "设置失败：${result.errno}" })
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        bkToast(error.message ?: "设置失败")
+                    }
+                    readState(reportErrors = true)
                 }
-                .onFailure { bkToast(it.message ?: "设置失败") }
-            val current = runCatching { runBkctl("get-all") }.getOrNull()
-            if (current?.errno == 0) state = parseState(current.stdout)
-            busy = false
+            } finally {
+                busy = false
+            }
         }
     }
 
@@ -278,7 +305,15 @@ private fun ControlScreen() {
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) {
+        refresh()
+        while (isActive) {
+            delay(3000)
+            if (document.asDynamic().hidden != true && !busy) {
+                commands.withLock { readState(reportErrors = false) }
+            }
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val useNavigationRail = maxWidth >= 840.dp ||
