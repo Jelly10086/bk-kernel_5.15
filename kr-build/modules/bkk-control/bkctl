@@ -255,6 +255,11 @@ theme_seed() {
 
 [ "$(id -u)" = 0 ] || die '需要root'
 [ -x "$BB" ] || die 'KernelSU BusyBox不存在'
+# 系统shell会关闭传给flock的描述符，锁操作统一由BusyBox shell执行
+if [ "${BKK_BUSYBOX_SHELL:-0}" != 1 ]; then
+    BKK_BUSYBOX_SHELL=1 exec "$BB" sh "$0" "$@"
+fi
+unset BKK_BUSYBOX_SHELL
 mkdir -p "$STATE"
 chmod 0700 "$STATE"
 exec 9>"$STATE/control.lock"

@@ -19,6 +19,7 @@ class InstallTests(unittest.TestCase):
         source = (self.module / 'customize.sh').read_text()
         source = source.replace('/data/adb/bkk-control', str(self.state))
         source = source.replace('/data/adb/modules/bkk-control/bkctl', str(self.root / 'old/bkctl'))
+        source = source.replace('/data/adb/ksu/bin/busybox', str(self.root / 'busybox'))
         (self.module / 'customize.sh').write_text(source)
         (self.module / 'build-info.txt').write_text('KERNEL_RELEASE=5.15.216_bkk-CaT_t1-c123456789abc-dirty\n')
         self.driver = self.root / 'install.sh'
@@ -54,6 +55,18 @@ insmod() { echo "unexpected insmod" >&2; exit 99; }
         result = self.install('5.15.216_bkk-CaT_t1-c123456789abc-dirty')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'bkk-control - 安装完成\n')
+        self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
+
+    def test_upgrade_restores_old_script_through_busybox(self):
+        old = self.root / 'old/bkctl'
+        old.parent.mkdir()
+        old.write_text('#!/bin/sh\n[ "$BKK_TEST_BUSYBOX" = 1 ] && [ "$1" = restore ]\n')
+        old.chmod(0o755)
+        busybox = self.root / 'busybox'
+        busybox.write_text('#!/bin/sh\nexport BKK_TEST_BUSYBOX=1\nexec "$@"\n')
+        busybox.chmod(0o755)
+        result = self.install('5.15.216_bkk-CaT_t1-c123456789abc-dirty')
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
 
     def test_unsupported_device_does_not_install(self):

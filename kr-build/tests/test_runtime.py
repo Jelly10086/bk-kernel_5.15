@@ -18,8 +18,9 @@ class RuntimeTests(unittest.TestCase):
         self.mock = self.root / 'bin'
         self.mock.mkdir()
         self.calls = self.root / 'calls'
+        self.shell_calls = self.root / 'shell-calls'
         busybox = self.root / 'busybox'
-        busybox.write_text('#!/bin/sh\nexec "$@"\n')
+        busybox.write_text(f'#!/bin/sh\n[ "$1" != sh ] || echo shell >> "{self.shell_calls}"\nexec "$@"\n')
         busybox.chmod(0o755)
         script = (BUILD / 'modules/bkk-control/bkctl').read_text()
         script = script.replace('/data/adb/bkk-control', str(self.state))
@@ -50,6 +51,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(self.calls.exists())
         self.assertFalse((self.state / 'daemon.pid').exists())
         self.assertIn('configured_mode=disabled', self.run_ctl('status').stdout)
+
+    def test_each_invocation_enters_busybox_before_locking(self):
+        for command in ['boot', 'restore', 'status']:
+            result = self.run_ctl(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.shell_calls.read_text().splitlines(), ['shell'] * 3)
 
     def test_kernel_mismatch_fails_before_insmod(self):
         result = self.run_ctl('set', 'mode', 'auto')

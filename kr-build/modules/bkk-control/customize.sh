@@ -15,7 +15,7 @@ if [ "$CURRENT_RELEASE" != "$BUILT_RELEASE" ]; then
 fi
 OLD=/data/adb/modules/bkk-control/bkctl
 if [ -x "$OLD" ]; then
-    "$OLD" restore || abort '旧模块恢复失败'
+    /data/adb/ksu/bin/busybox sh "$OLD" restore || abort '旧模块恢复失败'
 fi
 mkdir -p /data/adb/bkk-control
 chmod 0700 /data/adb/bkk-control
