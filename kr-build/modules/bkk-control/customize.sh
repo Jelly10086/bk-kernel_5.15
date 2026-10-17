@@ -20,7 +20,7 @@ fi
 mkdir -p /data/adb/bkk-control
 chmod 0700 /data/adb/bkk-control
 printf 'mode=disabled\n' > /data/adb/bkk-control/control.conf
-for FILE in bkctl service.sh action.sh uninstall.sh post-fs-data.sh boot-completed.sh; do
+for FILE in bkctl service.sh action.sh uninstall.sh post-fs-data.sh boot-completed.sh retention.sh; do
     [ -f "$MODPATH/$FILE" ] || abort "缺少$FILE"
     set_perm "$MODPATH/$FILE" 0 0 0755
 done

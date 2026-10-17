@@ -280,6 +280,10 @@ mkdir -p "$STATE"
 chmod 0700 "$STATE"
 exec 9>"$STATE/control.lock"
 case "${1:-status}" in
+    retain)
+        case "${2:-status}" in apply|restore|status) ;; *) die '用法：bkctl retain apply|restore|status' ;; esac
+        exec "$MODDIR/retention.sh" "${2:-status}"
+        ;;
     memory)
         case "${2:-status}" in status|enable|disable) ;; *) die '用法：bkctl memory status|enable|disable' ;; esac
         [ -x "$MODDIR/zsmalloc/load.sh" ] || die '未安装配套分配器，需要与新内核一起构建'
