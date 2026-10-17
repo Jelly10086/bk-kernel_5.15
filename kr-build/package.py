@@ -100,7 +100,7 @@ def zip_tree(source: Path, target: Path) -> None:
         bad_file = archive.testzip()
         if bad_file:
             raise ValueError(f"ZIP 校验失败：{bad_file}")
-        for relative in ("Image.gz", "anykernel.sh", "tools/ak3-core.sh",
+        for relative in ("Image.gz", "kernel.release", "anykernel.sh", "tools/ak3-core.sh",
                          "META-INF/com/google/android/update-binary"):
             if relative not in archive.namelist():
                 raise ValueError(f"ZIP 缺少文件：{relative}")
@@ -172,6 +172,7 @@ def main() -> None:
             if (source / license_name).is_file():
                 shutil.copy2(source / license_name, installer / license_name)
         shutil.copy2(image, installer / "Image.gz")
+        shutil.copy2(inputs["kernel.release"], installer / "kernel.release")
         template = Path(__file__).with_name("anykernel.sh").read_text()
         template, count = re.subn(r"^kernel\.string=.*$", f"kernel.string=bkk-{version}", template, flags=re.MULTILINE)
         if count != 1:
