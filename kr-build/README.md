@@ -6,7 +6,7 @@ debian 依赖：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y bc bison build-essential ca-certificates cpio curl dwarves flex git kmod libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
+sudo apt-get install -y bc bison build-essential ca-certificates cpio curl dwarves flex git kmod libelf-dev libssl-dev openssl pkg-config python3 rsync zlib1g-dev
 ```
 
 在内核仓库根目录执行：
@@ -47,3 +47,5 @@ OUT_DIR=/path/to/existing/out bash kr-build/build-module.sh
 CPU超过87°C或电池达到46°C撤销提升，回落至80°C和43°C允许恢复。熄屏、挂起或调用超时也撤销
 
 WebUI沿用k2的Compose/Miuix布局。修改`kr-build/webui`后，用JDK 21和Gradle 9执行`bash kr-build/build-webui.sh`；日常内核构建直接使用已生成的UI
+
+AK3和bkk-control包含同轮内核签名的`zsmalloc.ko`，仅在交换区尚未启用时加载，保留原厂ZRAM回写。Recovery刷AK3需解密`/data`并已安装KernelSU/BakaSU。失败回退原厂模块，`bkctl memory status`查看状态，`bkctl memory disable`在下次开机停用

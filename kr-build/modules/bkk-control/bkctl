@@ -280,6 +280,11 @@ mkdir -p "$STATE"
 chmod 0700 "$STATE"
 exec 9>"$STATE/control.lock"
 case "${1:-status}" in
+    memory)
+        case "${2:-status}" in status|enable|disable) ;; *) die '用法：bkctl memory status|enable|disable' ;; esac
+        [ -x "$MODDIR/zsmalloc/load.sh" ] || die '未安装配套分配器，需要与新内核一起构建'
+        exec "$MODDIR/zsmalloc/load.sh" "${2:-status}"
+        ;;
     get-all) get_all ;;
     theme-seed) theme_seed ;;
     collect-log) collect_log ;;

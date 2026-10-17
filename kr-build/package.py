@@ -16,6 +16,7 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from version import built_metadata, built_version, package_version, version_template
+from zsmalloc import stage_allocator
 
 
 def fetch_anykernel(cache: Path, commit: str) -> Path:
@@ -104,7 +105,7 @@ def zip_tree(source: Path, target: Path) -> None:
                          "META-INF/com/google/android/update-binary"):
             if relative not in archive.namelist():
                 raise ValueError(f"ZIP 缺少文件：{relative}")
-        if any(name.startswith(('module/', 'modules/')) or name.endswith('.ko')
+        if any(name.startswith(('module/', 'modules/')) or (name.endswith('.ko') and name != 'allocator/zsmalloc.ko')
                for name in archive.namelist()):
             raise ValueError('AK3不能包含独立控制模块')
 
@@ -173,6 +174,10 @@ def main() -> None:
                 shutil.copy2(source / license_name, installer / license_name)
         shutil.copy2(image, installer / "Image.gz")
         shutil.copy2(inputs["kernel.release"], installer / "kernel.release")
+        stage_allocator(out, installer / 'allocator')
+        shutil.copy2(Path(__file__).with_name('ak3-memory.sh'), installer / 'tools/bkk-memory.sh')
+        shutil.copy2(Path(__file__).with_name('modules') / 'bkk-zsmalloc/entry.sh',
+                     installer / 'tools/bkk-zsmalloc-entry.sh')
         template = Path(__file__).with_name("anykernel.sh").read_text()
         template, count = re.subn(r"^kernel\.string=.*$", f"kernel.string=bkk-{version}", template, flags=re.MULTILINE)
         if count != 1:
@@ -185,6 +190,7 @@ def main() -> None:
         zip_tree(installer, zip_path)
         for relative, path in inputs.items():
             shutil.copy2(path, bundle / relative)
+        shutil.copy2(installer / 'allocator/build-info.txt', bundle / 'zsmalloc-build-info.txt')
         files = sorted(bundle.iterdir())
         (bundle / "SHA256SUMS").write_text("".join(
             f"{checksum(path)}  {path.name}\n" for path in files

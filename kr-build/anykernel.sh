@@ -26,6 +26,9 @@ ui_print "kernel by Github@Jelly10086"
 [ -s "$AKHOME/kernel.release" ] || abort 'Missing kernel.release. Aborting...'
 ui_print "Kernel: $(cat "$AKHOME/kernel.release")"
 ui_print "Target: $BLOCK"
+. tools/bkk-memory.sh
+trap cleanup_allocator EXIT
+prepare_allocator
 split_boot
 flash_boot
 
@@ -36,4 +39,5 @@ expected_hash=$(sha256sum "$AKHOME/boot-new.img" | cut -d' ' -f1)
 [ "${#expected_hash}" -eq 64 ] || abort 'Unable to hash repacked boot image. Aborting...'
 actual_hash=$(head -c "$image_size" "$BLOCK" | sha256sum | cut -d' ' -f1)
 [ "$actual_hash" = "$expected_hash" ] || abort 'Boot readback mismatch. Flash verification failed.'
+commit_allocator
 ui_print 'Boot write verified. Reboot to use this kernel.'

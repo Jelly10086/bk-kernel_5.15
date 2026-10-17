@@ -155,6 +155,7 @@ make_kernel -s include/config/kernel.release
 [[ $(cat "$OUT_DIR/include/config/kernel.release") == "$kernel_release" ]] || \
     die "生成的内核版本与 kr-build/version 不符"
 log "内核版本 - $kernel_release"
+grep -qx 'CONFIG_ZSMALLOC_CHAIN_SIZE=8' "$OUT_DIR/.config" || die 'zsmalloc链长配置不符'
 log "编译 Image.gz 与 GKI 模块"
 phase=编译和链接
 make_kernel -j"$JOBS" Image.gz modules
@@ -177,6 +178,8 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     pahole --version
     git -C "$KERNEL_DIR" status --short
 } > "$OUT_DIR/build-info.txt"
+phase=zsmalloc签名
+python3 "$KR_BUILD_DIR/zsmalloc.py" --out-dir "$OUT_DIR"
 phase=AK3打包
 PACKAGE_VERSION="$PACKAGE_VERSION" OUT_DIR="$OUT_DIR" DIST_DIR="$DIST_DIR" bash "$KR_BUILD_DIR/pack.sh"
 phase=bkk-control打包

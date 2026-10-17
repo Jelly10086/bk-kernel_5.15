@@ -239,12 +239,15 @@ jobs:
           import sys
           import zipfile
           with zipfile.ZipFile(sys.argv[1]) as kernel, zipfile.ZipFile(sys.argv[2]) as control:
-              assert not any(n.endswith('.ko') or n.startswith(('module/', 'modules/')) for n in kernel.namelist())
+              assert [n for n in kernel.namelist() if n.endswith('.ko')] == ['allocator/zsmalloc.ko']
+              assert not any(n.startswith(('module/', 'modules/')) for n in kernel.namelist())
               assert not any(n.startswith(('Image', 'tools/', 'META-INF/')) for n in control.namelist())
               assert 'bkk_perf.ko' in control.namelist()
+              assert kernel.read('allocator/zsmalloc.ko') == control.read('zsmalloc/zsmalloc.ko')
+              assert kernel.read('allocator/build-info.txt') == control.read('zsmalloc/build-info.txt')
           PY
           mkdir -p "$RUNNER_TEMP/release-metadata"
-          cp -- "$bundle"/{SHA256SUMS,kernel.release,build-info.txt,gki.config,Module.symvers} "$RUNNER_TEMP/release-metadata/"
+          cp -- "$bundle"/{SHA256SUMS,kernel.release,build-info.txt,gki.config,Module.symvers,zsmalloc-build-info.txt} "$RUNNER_TEMP/release-metadata/"
           cp -- "$control_bundle"/{bkk-control-SHA256SUMS,bkk-control-build-info.txt} "$RUNNER_TEMP/release-metadata/"
 
       - name: Upload checksums and build metadata

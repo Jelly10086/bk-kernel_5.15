@@ -12,6 +12,7 @@ import sys
 import tempfile
 import zipfile
 from version import built_metadata
+from zsmalloc import stage_allocator
 
 
 def digest(path: Path) -> str:
@@ -57,6 +58,7 @@ def package(out: Path, dist: Path, module: Path, clang: Path) -> Path:
         stage = Path(temp)
         installer = stage / 'installer'
         shutil.copytree(source, installer)
+        stage_allocator(out, installer / 'zsmalloc')
         prop = installer / 'module.prop'
         prop.write_text(prop.read_text().replace('@REVISION@', revision).replace('@VERSION_CODE@', str(code)))
         shutil.copy2(module, installer / 'bkk_perf.ko')
