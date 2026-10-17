@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="/internal/insets.css">
+  <link rel="stylesheet" href="/internal/colors.css">
+  <link rel="stylesheet" href="style.css">
+  <title>bkk-control</title>
+</head>
+<body>
+  <main>
+    <header><h1>bkk-control <small id="version"></small></h1><span>sheng - SM8550</span></header>
+    <section>
+      <h2>灰烬模式</h2>
+      <label for="mode">运行方式</label>
+      <select id="mode" disabled>
+        <option value="disabled" selected>关闭</option>
+        <option value="auto">自动 - 持续高负载时提升CPU</option>
+        <option value="manual">手动 - 保持CPU提升</option>
+      </select>
+      <p>仅提升CPU性能簇下限。保留原厂温控、GPU策略和刷新率。熄屏时撤销提升。</p>
+      <p>CPU超过87°C或电池达到46°C退出，回落至80°C和43°C后允许恢复。</p>
+      <button id="apply" disabled>应用</button>
+      <button id="restore" disabled>关闭并恢复</button>
+    </section>
+    <section><h2>运行状态</h2><pre id="status">正在读取</pre><button id="refresh">刷新</button></section>
+    <section><h2>日志</h2><pre id="log">尚未读取</pre><button id="read-log">读取日志</button></section>
+    <p id="message" role="status"></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

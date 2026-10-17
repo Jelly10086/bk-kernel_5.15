@@ -1,0 +1,199 @@
+#!/system/bin/sh
+set -eu
+umask 077
+MODDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+STATE=/data/adb/bkk-control
+BB=/data/adb/ksu/bin/busybox
+REQUEST=/sys/kernel/bkk_control/request
+STATUS=/sys/kernel/bkk_control/status
+CONFIG=$STATE/control.conf
+LOG=$STATE/control.log
+
+die() { echo "[ERROR] $*" >&2; exit 1; }
+log() {
+    if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 65536 ]; then
+        mv -f "$LOG" "$LOG.1"
+    fi
+    printf '[%s] %s\n' "$(date '+%F %T')" "$*" >> "$LOG"
+}
+read_mode() {
+    MODE=$(sed -n 's/^mode=//p' "$CONFIG" 2>/dev/null || true)
+    case "$MODE" in disabled|auto|manual) ;; *) MODE=disabled ;; esac
+}
+set_mode() {
+    printf 'mode=%s\n' "$1" > "$CONFIG.tmp"
+    mv -f "$CONFIG.tmp" "$CONFIG"
+}
+off() {
+    if [ -w "$REQUEST" ]; then
+        printf 'off\n' > "$REQUEST" || return 1
+    fi
+}
+running() {
+    [ -r "$STATE/daemon.pid" ] || return 1
+    IFS= read -r DAEMON_PID < "$STATE/daemon.pid"
+    case "$DAEMON_PID" in ''|*[!0-9]*) return 1 ;; esac
+    [ -r "/proc/$DAEMON_PID/cmdline" ] || return 1
+    case "$(tr '\000' ' ' < "/proc/$DAEMON_PID/cmdline")" in
+        *"$MODDIR/bkctl daemon"*) return 0 ;;
+    esac
+    return 1
+}
+ensure_lkm() {
+    [ "$(getprop ro.product.device)" = sheng ] || die '仅支持sheng'
+    [ "$(getprop ro.soc.model)" = SM8550 ] || die 'CPU配置不匹配'
+    BUILT_RELEASE=$(sed -n 's/^KERNEL_RELEASE=//p' "$MODDIR/build-info.txt")
+    [ "$(uname -r)" = "$BUILT_RELEASE" ] || die '请安装与当前内核配套的bkk-control'
+    BUILT_SOURCE=$(sed -n 's/^MODULE_SRCVERSION=//p' "$MODDIR/build-info.txt")
+    [ -n "$BUILT_SOURCE" ] || die 'LKM来源信息缺失'
+    if [ -e "$REQUEST" ] && [ "$(cat /sys/module/bkk_perf/srcversion)" != "$BUILT_SOURCE" ]; then
+        off || die '旧LKM停止失败'
+        rmmod bkk_perf || die '旧LKM卸载失败'
+    fi
+    if [ ! -e "$REQUEST" ]; then
+        insmod "$MODDIR/bkk_perf.ko" || die 'bkk_perf.ko加载失败'
+    fi
+    BUILT_REVISION=$(sed -n 's/^version=//p' "$MODDIR/module.prop")
+    [ "$(sed -n 's/^version=//p' "$STATUS")" = "$BUILT_REVISION" ] || die '已加载LKM版本不匹配'
+}
+find_sensors() {
+    BATTERY_ZONES=
+    CPU_ZONES=
+    for ZONE in /sys/class/thermal/thermal_zone*; do
+        [ -r "$ZONE/type" ] || continue
+        TYPE=$(cat "$ZONE/type")
+        case "$TYPE" in
+            battery|batt_therm) BATTERY_ZONES="$BATTERY_ZONES $ZONE/temp" ;;
+            cpuss-*|cpu-*-*) CPU_ZONES="$CPU_ZONES $ZONE/temp" ;;
+        esac
+    done
+    [ -n "$BATTERY_ZONES" ] && [ -n "$CPU_ZONES" ]
+}
+max_temperature() {
+    MAX_TEMP=-1
+    for NODE in "$@"; do
+        TEMP=$(cat "$NODE" 2>/dev/null) || return 1
+        case "$TEMP" in ''|*[!0-9]*) return 1 ;; esac
+        [ "$TEMP" -ge 1000 ] && [ "$TEMP" -le 150000 ] || return 1
+        [ "$TEMP" -le "$MAX_TEMP" ] || MAX_TEMP=$TEMP
+    done
+    [ "$MAX_TEMP" -ge 0 ] || return 1
+    printf '%s\n' "$MAX_TEMP"
+}
+start_daemon() {
+    "$BB" flock 9
+    if running; then
+        "$BB" flock -u 9
+        return 0
+    fi
+    "$BB" setsid "$BB" sh "$MODDIR/bkctl" daemon </dev/null >/dev/null 2>&1 &
+    ATTEMPTS=0
+    while [ "$ATTEMPTS" -lt 20 ]; do
+        if running; then
+            "$BB" flock -u 9
+            return 0
+        fi
+        ATTEMPTS=$((ATTEMPTS + 1))
+        sleep 0.1
+    done
+    "$BB" flock -u 9
+    die '控制服务未启动，提升请求将超时撤销'
+}
+daemon() {
+    exec 8>"$STATE/daemon.lock"
+    "$BB" flock 8
+    printf '%s\n' "$$" > "$STATE/daemon.pid"
+    finish() {
+        trap - EXIT INT TERM
+        "$BB" flock 9
+        off || true
+        if [ "$(cat "$STATE/daemon.pid" 2>/dev/null)" = "$$" ]; then
+            rm -f "$STATE/daemon.pid"
+        fi
+        "$BB" flock -u 9
+    }
+    trap finish EXIT
+    trap 'exit 0' INT TERM
+    find_sensors || die '温度传感器不完整'
+    LAST_STATE=
+    while :; do
+        "$BB" flock 9
+        read_mode
+        if [ "$MODE" = disabled ] || [ -e "$MODDIR/disable" ] || [ -e "$MODDIR/remove" ]; then
+            finish
+            break
+        fi
+        # Sensor failure withdraws the lease instead of reusing old temperatures.
+        BATTERY=$(max_temperature $BATTERY_ZONES) || BATTERY=
+        SOC=$(max_temperature $CPU_ZONES) || SOC=
+        BRIGHTNESS=$(cat /sys/class/backlight/panel0-backlight/brightness 2>/dev/null) || BRIGHTNESS=
+        case "$BRIGHTNESS" in ''|*[!0-9]*) SCREEN=unknown ;; 0) SCREEN=0 ;; *) SCREEN=1 ;; esac
+        if [ -z "$BATTERY" ] || [ -z "$SOC" ] || [ "$SCREEN" = unknown ]; then
+            off
+            CURRENT_STATE=sensor_error
+        else
+            if ! printf '%s %s %s %s\n' "$MODE" "$BATTERY" "$SOC" "$SCREEN" > "$REQUEST"; then
+                off
+                CURRENT_STATE=request_failed
+                set_mode disabled
+            else
+                CURRENT_STATE=$(sed -n 's/^state=//p' "$STATUS")
+            fi
+        fi
+        if [ "$CURRENT_STATE" != "$LAST_STATE" ]; then
+            log "mode=$MODE state=$CURRENT_STATE battery_mC=$BATTERY soc_mC=$SOC"
+            LAST_STATE=$CURRENT_STATE
+        fi
+        "$BB" flock -u 9
+        sleep 3
+    done
+}
+
+[ "$(id -u)" = 0 ] || die '需要root'
+[ -x "$BB" ] || die 'KernelSU BusyBox不存在'
+mkdir -p "$STATE"
+chmod 0700 "$STATE"
+exec 9>"$STATE/control.lock"
+case "${1:-status}" in
+    daemon) daemon ;;
+    set)
+        [ "$#" = 3 ] && [ "$2" = mode ] || die '用法：bkctl set mode disabled|auto|manual'
+        case "$3" in disabled|auto|manual) ;; *) die '模式无效' ;; esac
+        "$BB" flock 9
+        if [ "$3" = disabled ]; then
+            set_mode disabled
+            off
+        else
+            ensure_lkm
+            set_mode "$3"
+        fi
+        log "mode=$3"
+        "$BB" flock -u 9
+        [ "$3" = disabled ] || start_daemon
+        ;;
+    restore)
+        "$BB" flock 9
+        set_mode disabled
+        off
+        log 'mode=disabled - restored'
+        ;;
+    boot)
+        "$BB" flock 9
+        read_mode
+        if [ "$MODE" = disabled ]; then
+            off
+        else
+            ensure_lkm
+        fi
+        "$BB" flock -u 9
+        [ "$MODE" = disabled ] || start_daemon
+        ;;
+    status)
+        read_mode
+        printf 'configured_mode=%s\nkernel=%s\n' "$MODE" "$(uname -r)"
+        sed -n '/^version=/p' "$MODDIR/module.prop"
+        if [ -r "$STATUS" ]; then cat "$STATUS"; else printf 'state=unloaded\n'; fi
+        ;;
+    log) tail -n 150 "$LOG" 2>/dev/null || true ;;
+    *) die '用法：bkctl status|set mode disabled/auto/manual|restore|log' ;;
+esac

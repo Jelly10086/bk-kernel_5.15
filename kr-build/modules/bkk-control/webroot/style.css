@@ -1,0 +1,21 @@
+:root { color-scheme: light dark; font-family: MiSans, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: var(--safe-area-inset-top, 0) 20px var(--safe-area-inset-bottom, 0); background: var(--background, #f5f5f7); color: var(--onBackground, #202124); }
+main { max-width: 800px; margin: 32px auto; }
+header { margin-bottom: 28px; }
+h1 { font-size: 26px; font-weight: 600; margin-bottom: 8px; }
+h2 { font-size: 18px; margin-top: 0; }
+small, header span, p { color: var(--onSurfaceVariant, #656970); }
+small { font-size: 16px; }
+section { background: var(--surfaceContainer, #fff); border-radius: 20px; padding: 24px; margin: 16px 0; }
+p { font-size: 14px; line-height: 1.6; }
+label { display: block; margin-bottom: 10px; }
+select { width: 100%; padding: 12px; border: 1px solid #8886; border-radius: 10px; background: transparent; color: inherit; font: inherit; }
+button { min-height: 44px; padding: 10px 18px; margin: 8px 8px 0 0; border: 0; border-radius: 22px; background: var(--primary, #305f9f); color: var(--onPrimary, #fff); font: inherit; }
+button:disabled { opacity: .4; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; max-height: 380px; overflow-y: auto; }
+@media (prefers-color-scheme: dark) {
+  body { background: var(--background, #111315); color: var(--onBackground, #e2e3e6); }
+  section { background: var(--surfaceContainer, #1c1f23); }
+  small, header span, p { color: var(--onSurfaceVariant, #adb1ba); }
+}
