@@ -26,6 +26,9 @@ class RuntimeTests(unittest.TestCase):
         script = script.replace('/data/adb/bkk-control', str(self.state))
         script = script.replace('/data/adb/ksu/bin/busybox', str(busybox))
         script = script.replace('/sys/kernel/bkk_control', str(self.root / 'sysfs'))
+        script = script.replace('/sys/class/thermal', str(self.root / 'thermal'))
+        script = script.replace('/sys/class/backlight/panel0-backlight/brightness', str(self.root / 'brightness'))
+        script = script.replace('/sys/module/bkk_perf', str(self.root / 'loaded'))
         (self.module / 'bkctl').write_text(script)
         (self.module / 'module.prop').write_text('version=P1\n')
         (self.module / 'build-info.txt').write_text('KERNEL_RELEASE=5.15.216_bkk-CaT_P1\n')
@@ -131,6 +134,53 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(request.read_text(), 'off\n')
             self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
+
+    def prepare_matching_control(self):
+        (self.module / 'build-info.txt').write_text(
+            'KERNEL_RELEASE=5.15.216_bkk-CaT_r1\nMODULE_SRCVERSION=CHECKED\n')
+        status = self.root / 'sysfs/status'
+        status.parent.mkdir()
+        status.write_text('version=P1\nstate=idle\n')
+        (status.parent / 'request').write_text('off\n')
+        (self.root / 'loaded').mkdir()
+        (self.root / 'loaded/srcversion').write_text('CHECKED\n')
+        for index, kind, temp in [(0, 'cpuss-0', 70000), (1, 'battery', 40000)]:
+            zone = self.root / f'thermal/thermal_zone{index}'
+            zone.mkdir(parents=True)
+            (zone / 'type').write_text(kind + '\n')
+            (zone / 'temp').write_text(str(temp) + '\n')
+        (self.root / 'brightness').write_text('100\n')
+        path = self.module / 'bkctl'
+        path.write_text(path.read_text().replace('start_daemon() {\n',
+            f'start_daemon() {{\n    cat "$REQUEST" > "{self.calls}"\n    return 0\n'))
+
+    def test_mode_change_sends_fresh_sensors_before_starting_daemon(self):
+        self.prepare_matching_control()
+        for selected in ['manual', 'auto']:
+            result = self.run_ctl('set', 'mode', selected)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = f'{selected} 40000 70000 1\n'
+            self.assertEqual((self.root / 'sysfs/request').read_text(), expected)
+            self.assertEqual(self.calls.read_text(), expected)
+            self.assertEqual((self.state / 'control.conf').read_text(), f'mode={selected}\n')
+
+    def test_missing_sensor_cancels_mode_change_and_withdraws_old_request(self):
+        self.prepare_matching_control()
+        (self.root / 'thermal/thermal_zone0/temp').unlink()
+        result = self.run_ctl('set', 'mode', 'manual')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / 'sysfs/request').read_text(), 'off\n')
+        self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
+        self.assertFalse(self.calls.exists())
+
+    def test_missing_runtime_status_fails_closed(self):
+        self.prepare_matching_control()
+        (self.root / 'sysfs/status').write_text('version=P1\n')
+        result = self.run_ctl('set', 'mode', 'auto')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / 'sysfs/request').read_text(), 'off\n')
+        self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
+        self.assertFalse(self.calls.exists())
 
 
 if __name__ == '__main__':

@@ -80,6 +80,28 @@ max_temperature() {
     [ "$MAX_TEMP" -ge 0 ] || return 1
     printf '%s\n' "$MAX_TEMP"
 }
+refresh_request() {
+    BATTERY=$(max_temperature $BATTERY_ZONES) || BATTERY=
+    SOC=$(max_temperature $CPU_ZONES) || SOC=
+    BRIGHTNESS=$(cat /sys/class/backlight/panel0-backlight/brightness 2>/dev/null) || BRIGHTNESS=
+    case "$BRIGHTNESS" in ''|*[!0-9]*) SCREEN=unknown ;; 0) SCREEN=0 ;; *) SCREEN=1 ;; esac
+    if [ -z "$BATTERY" ] || [ -z "$SOC" ] || [ "$SCREEN" = unknown ]; then
+        off || true
+        CURRENT_STATE=sensor_error
+        return 1
+    fi
+    if ! printf '%s %s %s %s\n' "$MODE" "$BATTERY" "$SOC" "$SCREEN" > "$REQUEST"; then
+        off || true
+        CURRENT_STATE=request_failed
+        return 1
+    fi
+    CURRENT_STATE=$(sed -n 's/^state=//p' "$STATUS") || CURRENT_STATE=
+    if [ -z "$CURRENT_STATE" ]; then
+        off || true
+        CURRENT_STATE=request_failed
+        return 1
+    fi
+}
 start_daemon() {
     "$BB" flock 9
     if running; then
@@ -123,22 +145,8 @@ daemon() {
             finish
             break
         fi
-        # Sensor failure withdraws the lease instead of reusing old temperatures.
-        BATTERY=$(max_temperature $BATTERY_ZONES) || BATTERY=
-        SOC=$(max_temperature $CPU_ZONES) || SOC=
-        BRIGHTNESS=$(cat /sys/class/backlight/panel0-backlight/brightness 2>/dev/null) || BRIGHTNESS=
-        case "$BRIGHTNESS" in ''|*[!0-9]*) SCREEN=unknown ;; 0) SCREEN=0 ;; *) SCREEN=1 ;; esac
-        if [ -z "$BATTERY" ] || [ -z "$SOC" ] || [ "$SCREEN" = unknown ]; then
-            off
-            CURRENT_STATE=sensor_error
-        else
-            if ! printf '%s %s %s %s\n' "$MODE" "$BATTERY" "$SOC" "$SCREEN" > "$REQUEST"; then
-                off
-                CURRENT_STATE=request_failed
-                set_mode disabled
-            else
-                CURRENT_STATE=$(sed -n 's/^state=//p' "$STATUS")
-            fi
+        if ! refresh_request; then
+            [ "$CURRENT_STATE" != request_failed ] || set_mode disabled
         fi
         if [ "$CURRENT_STATE" != "$LAST_STATE" ]; then
             log "mode=$MODE state=$CURRENT_STATE battery_mC=$BATTERY soc_mC=$SOC"
@@ -314,7 +322,13 @@ case "${1:-status}" in
             off
         else
             ensure_lkm
-            set_mode "$3"
+            MODE=$3
+            if ! find_sensors || ! refresh_request; then
+                set_mode disabled
+                off || true
+                die '传感器读取或提升请求失败，已关闭性能模式'
+            fi
+            set_mode "$MODE"
         fi
         log "mode=$3"
         "$BB" flock -u 9
