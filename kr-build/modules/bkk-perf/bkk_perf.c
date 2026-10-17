@@ -340,6 +340,6 @@ static void __exit bkk_exit(void)
 module_init(bkk_init);
 module_exit(bkk_exit);
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Jelly10086");
+MODULE_AUTHOR("RinnRei");
 MODULE_DESCRIPTION("Opt-in leased CPU QoS for sheng");
 MODULE_VERSION(BKK_VERSION);

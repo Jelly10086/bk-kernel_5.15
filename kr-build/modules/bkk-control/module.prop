@@ -2,5 +2,5 @@ id=bkk-control
 name=bkk-control
 version=@REVISION@
 versionCode=@VERSION_CODE@
-author=RinnRei, Jelly10086
+author=RinnRei
 description=CaT control for sheng
