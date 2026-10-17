@@ -328,7 +328,6 @@ jobs:
           {
             printf 'Kernel: `%s`\n\n' "$(cat kernel.release)"
             printf 'Commit: `%s`\n\n' "$GITHUB_SHA"
-            printf 'bkk-control: `%s` - 灰烬模式默认关闭\n\n' "$(sed -n 's/^MODULE_VERSION=//p' bkk-control-build-info.txt)"
             printf '[Build](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } > "$RUNNER_TEMP/release-notes.txt"
           gh release create "$tag" ./* --repo "$GITHUB_REPOSITORY" \
