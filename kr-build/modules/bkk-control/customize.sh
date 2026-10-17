@@ -11,7 +11,7 @@ CURRENT_RELEASE=$(uname -r)
 if [ "$CURRENT_RELEASE" != "$BUILT_RELEASE" ]; then
     ui_print "当前内核: $CURRENT_RELEASE"
     ui_print "配套内核: $BUILT_RELEASE"
-    ui_print '允许先安装，模块保持关闭；启动配套内核后才能启用'
+    ui_print '允许先安装；启动配套内核后才能启用'
 fi
 OLD=/data/adb/modules/bkk-control/bkctl
 if [ -x "$OLD" ]; then
@@ -24,4 +24,4 @@ for FILE in bkctl service.sh action.sh uninstall.sh; do
     [ -f "$MODPATH/$FILE" ] || abort "缺少$FILE"
     set_perm "$MODPATH/$FILE" 0 0 0755
 done
-ui_print 'bkk-control - 灰烬模式默认关闭'
+ui_print 'bkk-control - 安装完成'

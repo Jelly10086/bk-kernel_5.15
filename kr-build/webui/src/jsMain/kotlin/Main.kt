@@ -45,7 +45,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font as PlatformFont
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,8 +104,6 @@ private data class ControlState(
     val kernelCompatible: Boolean = false,
     val mode: String = "disabled",
     val runtimeMode: String = "unknown",
-    val cpuTemperature: String = "未读取",
-    val batteryTemperature: String = "未读取",
 )
 
 private data class ExecResult(val errno: Int, val stdout: String, val stderr: String)
@@ -136,17 +133,15 @@ private fun parseState(text: String): ControlState {
         kernelCompatible = values["kernel_compatible"] == "1",
         mode = values["mode"] ?: "disabled",
         runtimeMode = values["runtime_mode"] ?: "unknown",
-        cpuTemperature = values["cpu_temperature"] ?: "未读取",
-        batteryTemperature = values["battery_temperature"] ?: "未读取",
     )
 }
 
 private fun runtimeLabel(mode: String): String = when (mode) {
-    "active" -> "灰烬模式运行中"
+    "active" -> "性能提升中"
     "warming" -> "等待持续高负载"
     "cooling" -> "温控冷却中"
-    "disabled" -> "灰烬模式已关闭"
-    "inactive" -> "灰烬模式待机"
+    "disabled" -> "未启用"
+    "inactive" -> "待机"
     "waiting_kernel" -> "等待启动配套内核"
     "screen_off" -> "熄屏暂停提升"
     "lease_expired" -> "调用已超时，提升已撤销"
@@ -222,7 +217,6 @@ private fun FontBootstrap() {
 @Composable
 private fun ControlScreen() {
     var state by remember { mutableStateOf(ControlState()) }
-    var message by remember { mutableStateOf("正在读取内核状态") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -239,12 +233,11 @@ private fun ControlScreen() {
                 .onSuccess {
                     if (it.errno == 0) {
                         state = parseState(it.stdout)
-                        message = "配置已同步"
                     } else {
-                        message = it.stderr.ifBlank { "读取失败：${it.errno}" }
+                        bkToast(it.stderr.ifBlank { "读取失败：${it.errno}" })
                     }
                 }
-                .onFailure { message = it.message ?: "KernelSU 接口不可用" }
+                .onFailure { bkToast(it.message ?: "KernelSU 接口不可用") }
             busy = false
         }
     }
@@ -254,9 +247,9 @@ private fun ControlScreen() {
             busy = true
             runCatching { runBkctl("set $key $value") }
                 .onSuccess {
-                    message = if (it.errno == 0) "设置已应用" else it.stderr.ifBlank { "设置失败：${it.errno}" }
+                    if (it.errno != 0) bkToast(it.stderr.ifBlank { "设置失败：${it.errno}" })
                 }
-                .onFailure { message = it.message ?: "设置失败" }
+                .onFailure { bkToast(it.message ?: "设置失败") }
             val current = runCatching { runBkctl("get-all") }.getOrNull()
             if (current?.errno == 0) state = parseState(current.stdout)
             busy = false
@@ -267,7 +260,6 @@ private fun ControlScreen() {
         bkToast("正在导出日志...")
         scope.launch {
             busy = true
-            message = "正在整理日志"
             runCatching {
                 val raw = bkExportLog("$BKCTL collect-log").await()
                 ExecResult(
@@ -276,12 +268,12 @@ private fun ControlScreen() {
                     stderr = raw.stderr.unsafeCast<String>(),
                 )
             }.onSuccess {
-                message = when (it.errno) {
+                bkToast(when (it.errno) {
                     0 -> it.stdout.trim()
                     130 -> "已取消日志导出"
                     else -> it.stderr.ifBlank { "日志保存失败：${it.errno}" }
-                }
-            }.onFailure { message = it.message ?: "日志保存失败" }
+                })
+            }.onFailure { bkToast(it.message ?: "日志保存失败") }
             busy = false
         }
     }
@@ -300,7 +292,6 @@ private fun ControlScreen() {
                 when (page) {
                     0 -> HomePager(
                         state = state,
-                        message = message,
                         busy = busy,
                         bottomPadding = bottomPadding,
                         onRefresh = ::refresh,
@@ -309,7 +300,6 @@ private fun ControlScreen() {
 
                     1 -> PolicyPager(
                         state = state,
-                        message = message,
                         busy = busy,
                         bottomPadding = bottomPadding,
                         onSaveLogs = ::saveLogs,
@@ -449,7 +439,6 @@ private fun ControlNavigationRail(mainState: MainPagerState) {
 @Composable
 private fun HomePager(
     state: ControlState,
-    message: String,
     busy: Boolean,
     bottomPadding: Dp,
     onRefresh: () -> Unit,
@@ -480,7 +469,6 @@ private fun HomePager(
             item {
                 StatusCard(
                     state = state,
-                    message = message,
                     busy = busy,
                     onRefresh = onRefresh,
                 )
@@ -495,7 +483,6 @@ private fun HomePager(
 @Composable
 private fun StatusCard(
     state: ControlState,
-    message: String,
     busy: Boolean,
     onRefresh: () -> Unit,
 ) {
@@ -529,13 +516,7 @@ private fun StatusCard(
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    text = if (state.runtimeMode != "unknown") runtimeLabel(state.runtimeMode) else message,
-                    modifier = Modifier.padding(top = 2.dp),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Spacer(Modifier.height(58.dp))
+                Spacer(Modifier.height(78.dp))
                 Text(
                     text = state.kernel,
                     fontSize = 14.sp,
@@ -579,7 +560,6 @@ private fun InfoText(label: String, value: String, bottomPadding: Dp = 22.dp) {
 @Composable
 private fun PolicyPager(
     state: ControlState,
-    message: String,
     busy: Boolean,
     bottomPadding: Dp,
     onSaveLogs: () -> Unit,
@@ -612,33 +592,14 @@ private fun PolicyPager(
             item {
                 Card(Modifier.fillMaxWidth()) {
                     OverlayDropdownPreference(
-                        title = "运行模式",
-                        summary = if (state.kernelCompatible) "CPU灰烬模式，默认关闭" else "请先启动配套内核",
+                        title = "性能模式",
+                        summary = if (state.kernelCompatible) "按负载和温度调整CPU性能" else "请先启动配套内核",
                         items = modeLabels,
                         selectedIndex = modeValues.indexOf(state.mode).coerceAtLeast(0),
                         enabled = !busy && state.kernelCompatible,
                         onSelectedIndexChange = { onSetValue("mode", modeValues[it]) },
                     )
                 }
-            }
-            item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        InfoText("CPU温度", state.cpuTemperature)
-                        InfoText("电池温度", state.batteryTemperature)
-                        InfoText("温控退出", "CPU超过87°C或电池达到46°C")
-                        InfoText("允许恢复", "CPU降至80°C且电池降至43°C", bottomPadding = 0.dp)
-                    }
-                }
-            }
-            item {
-                Text(
-                    text = message,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                )
             }
         }
     }

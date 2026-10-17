@@ -53,6 +53,7 @@ insmod() { echo "unexpected insmod" >&2; exit 99; }
     def test_matching_kernel_also_starts_disabled(self):
         result = self.install('5.15.216_bkk-CaT_t1-c123456789abc-dirty')
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'bkk-control - 安装完成\n')
         self.assertEqual((self.state / 'control.conf').read_text(), 'mode=disabled\n')
 
     def test_unsupported_device_does_not_install(self):
