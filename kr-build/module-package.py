@@ -64,7 +64,7 @@ def package(out: Path, dist: Path, module: Path, clang: Path) -> Path:
                 subprocess.run(['sh', '-n', str(path)], check=True)
                 path.chmod(0o755)
         archive_name = f'bkk-control-{revision}-{values["PACKAGE_DATE"]}.zip'
-        module_name = f'bkk_perf-{revision}-{values["PACKAGE_DATE"]}.ko'
+        module_name = f'bkk-ash-mode-{revision}-{values["PACKAGE_DATE"]}.ko'
         bundle = stage / 'bundle'
         bundle.mkdir()
         archive = bundle / archive_name

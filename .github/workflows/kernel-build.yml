@@ -214,11 +214,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload CPU QoS LKM
+      - name: Upload ash mode LKM
         id: perf
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: kr-build/dist/*/bkk_perf-*.ko
+          path: kr-build/dist/*/bkk-ash-mode-*.ko
           archive: false
           if-no-files-found: error
           retention-days: 14
@@ -299,7 +299,7 @@ jobs:
           path: ${{ runner.temp }}/release
           skip-decompress: true
 
-      - name: Download CPU QoS LKM
+      - name: Download ash mode LKM
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.build.outputs.perf-artifact }}

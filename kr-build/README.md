@@ -40,7 +40,7 @@ OUT_DIR=/path/to/existing/out bash kr-build/pack.sh
 OUT_DIR=/path/to/existing/out bash kr-build/build-module.sh
 ```
 
-本地和CI单独输出`bkk-control-r1-261017.zip`、`bkk_perf-r1-261017.ko`及校验文件，编号和日期跟随本次内核，Release同时发布
+本地和CI单独输出`bkk-control-r1-261017.zip`、灰烬模式`bkk-ash-mode-r1-261017.ko`及校验文件，编号和日期跟随本次内核，Release同时发布
 
 启动配套内核后，在BakaSU安装控制模块。灰烬模式默认关闭，WebUI可选自动或手动；点击“关闭并恢复”停止提升。只调整SM8550性能簇下限，保留GPU和120Hz策略
 
