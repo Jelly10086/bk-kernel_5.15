@@ -6,22 +6,21 @@ struct bkk_load_state {
 	unsigned int high;
 	unsigned int low;
 	bool boost;
-	bool hot;
 };
 
-static inline bool bkk_thermal(struct bkk_load_state *s, int battery, int soc)
+static inline bool bkk_thermal(bool hot, int battery, int soc)
 {
 	if (battery >= 46000 || soc > 87000)
-		s->hot = true;
+		return true;
 	else if (battery <= 43000 && soc <= 80000)
-		s->hot = false;
-	return s->hot;
+		return false;
+	return hot;
 }
 
 static inline bool bkk_decide(struct bkk_load_state *s, unsigned int busy,
-			      bool manual)
+			      bool manual, bool hot)
 {
-	if (s->hot) {
+	if (hot) {
 		s->high = 0;
 		s->low = 0;
 		s->boost = false;
@@ -33,15 +32,15 @@ static inline bool bkk_decide(struct bkk_load_state *s, unsigned int busy,
 	}
 	if (busy >= 75) {
 		s->low = 0;
-		if (s->high < 3)
+		if (s->high < 2)
 			s->high++;
-		if (s->high == 3)
+		if (s->high == 2)
 			s->boost = true;
 	} else if (busy <= 45) {
 		s->high = 0;
-		if (s->low < 6)
+		if (s->low < 4)
 			s->low++;
-		if (s->low == 6)
+		if (s->low == 4)
 			s->boost = false;
 	} else {
 		s->high = 0;

@@ -15,24 +15,31 @@ class PolicyTests(unittest.TestCase):
 #include "policy.h"
 int main(void) {
     struct bkk_load_state s = {0};
-    assert(!bkk_decide(&s, 95, false));
-    assert(!bkk_decide(&s, 95, false));
-    assert(bkk_decide(&s, 95, false));
-    for (int i = 0; i < 5; i++) assert(bkk_decide(&s, 10, false));
-    assert(!bkk_decide(&s, 10, false));
-    assert(!bkk_thermal(&s, 45999, 87000));
-    assert(bkk_decide(&s, 0, true));
-    assert(bkk_thermal(&s, 46000, 87000));
-    assert(!bkk_decide(&s, 100, true));
-    assert(bkk_thermal(&s, 43001, 80000));
-    assert(bkk_thermal(&s, 43000, 80001));
-    assert(!bkk_thermal(&s, 43000, 80000));
-    assert(bkk_thermal(&s, 40000, 87001));
-    assert(!bkk_decide(&s, 100, true));
-    assert(!bkk_thermal(&s, 43000, 80000));
-    assert(!bkk_decide(&s, 95, false));
-    assert(!bkk_decide(&s, 95, false));
-    assert(bkk_decide(&s, 95, false));
+    assert(!bkk_decide(&s, 95, false, false));
+    assert(bkk_decide(&s, 95, false, false));
+    for (int i = 0; i < 3; i++) assert(bkk_decide(&s, 10, false, false));
+    assert(!bkk_decide(&s, 10, false, false));
+    assert(!bkk_thermal(false, 45999, 87000));
+    assert(bkk_decide(&s, 0, true, false));
+    assert(bkk_thermal(false, 46000, 87000));
+    assert(!bkk_decide(&s, 100, true, true));
+    assert(bkk_thermal(true, 43001, 80000));
+    assert(bkk_thermal(true, 43000, 80001));
+    assert(!bkk_thermal(true, 43000, 80000));
+    assert(bkk_thermal(false, 40000, 87001));
+    assert(!bkk_decide(&s, 100, true, true));
+    assert(!bkk_thermal(true, 43000, 80000));
+    assert(!bkk_decide(&s, 95, false, false));
+    assert(bkk_decide(&s, 95, false, false));
+
+    struct bkk_load_state prime = {0};
+    assert(!bkk_decide(&prime, 10, false, false));
+    assert(s.boost && !prime.boost);
+    assert(bkk_decide(&s, 60, false, false));
+    assert(!bkk_decide(&prime, 95, false, false));
+    assert(bkk_decide(&prime, 95, false, false));
+    assert(!bkk_decide(&s, 100, false, true));
+    assert(!s.high && !s.low && !s.boost);
     return 0;
 }
 '''

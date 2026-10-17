@@ -16,7 +16,7 @@
 
 #define BKK_CPUS 8
 #define BKK_CLUSTERS 3
-#define BKK_INTERVAL (2 * HZ)
+#define BKK_INTERVAL HZ
 #define BKK_LEASE (8 * HZ)
 
 struct bkk_cluster {
@@ -24,11 +24,12 @@ struct bkk_cluster {
 	struct freq_qos_request request;
 	unsigned int floor;
 	unsigned int busy;
+	unsigned int peak;
+	struct bkk_load_state load;
 };
 
 static DEFINE_MUTEX(bkk_lock);
 static struct bkk_cluster clusters[BKK_CLUSTERS];
-static struct bkk_load_state load;
 static struct kobject *bkk_kobj;
 static struct delayed_work bkk_work;
 static u64 prev_idle[BKK_CPUS];
@@ -39,18 +40,24 @@ static unsigned int little;
 static int battery_temp;
 static int soc_temp;
 static bool suspended;
+static bool hot;
 static const char *reason = "disabled";
+
+static void bkk_release_vote(struct bkk_cluster *c)
+{
+	if (freq_qos_request_active(&c->request))
+		freq_qos_remove_request(&c->request);
+	c->floor = 0;
+}
 
 static void bkk_release_votes(void)
 {
 	unsigned int i;
 
 	for (i = 0; i < BKK_CLUSTERS; i++) {
-		if (freq_qos_request_active(&clusters[i].request))
-			freq_qos_remove_request(&clusters[i].request);
-		clusters[i].floor = 0;
+		bkk_release_vote(&clusters[i]);
+		memset(&clusters[i].load, 0, sizeof(clusters[i].load));
 	}
-	load.boost = false;
 }
 
 static void bkk_stop(const char *why)
@@ -66,9 +73,8 @@ static void bkk_stop(const char *why)
 			cpufreq_cpu_put(clusters[i].policy);
 		clusters[i].policy = NULL;
 		clusters[i].busy = 0;
+		clusters[i].peak = 0;
 	}
-	load.high = 0;
-	load.low = 0;
 	reason = why;
 }
 
@@ -115,12 +121,12 @@ unsupported:
 	return -ENODEV;
 }
 
-static unsigned int bkk_sample(struct cpufreq_policy *p)
+static void bkk_sample(struct bkk_cluster *c)
 {
 	u64 idle, iowait, wall, dt, di, busy = 0, total = 0;
-	unsigned int cpu;
+	unsigned int cpu, peak = 0;
 
-	for_each_cpu(cpu, p->related_cpus) {
+	for_each_cpu(cpu, c->policy->related_cpus) {
 		if (!cpu_online(cpu)) {
 			prev_wall[cpu] = 0;
 			continue;
@@ -138,11 +144,13 @@ static unsigned int bkk_sample(struct cpufreq_policy *p)
 			di = min(idle - prev_idle[cpu], dt);
 			busy += dt - di;
 			total += dt;
+			peak = max(peak, (unsigned int)div64_u64((dt - di) * 100, dt));
 		}
 		prev_wall[cpu] = wall;
 		prev_idle[cpu] = idle;
 	}
-	return total ? div64_u64(busy * 100, total) : 0;
+	c->busy = total ? div64_u64(busy * 100, total) : 0;
+	c->peak = peak;
 }
 
 static int bkk_vote(struct bkk_cluster *c)
@@ -153,7 +161,8 @@ static int bkk_vote(struct bkk_cluster *c)
 
 	/* Only add a minimum request; vendor and thermal maximums stay in charge. */
 	cap = min(READ_ONCE(c->policy->max), c->policy->cpuinfo.max_freq);
-	target = cap / 100 * 60;
+	target = max(c->policy->cpuinfo.min_freq, cap / 100 * 60);
+	target = min(target, cap);
 	cpufreq_for_each_valid_entry(entry, c->policy->freq_table)
 		if (entry->frequency <= target && entry->frequency > floor)
 			floor = entry->frequency;
@@ -172,7 +181,8 @@ static int bkk_vote(struct bkk_cluster *c)
 
 static void bkk_tick(struct work_struct *work)
 {
-	unsigned int i, busy = 0;
+	unsigned int i;
+	bool boosting = false;
 
 	mutex_lock(&bkk_lock);
 	if (!mode)
@@ -182,22 +192,20 @@ static void bkk_tick(struct work_struct *work)
 		goto out;
 	}
 	for (i = 0; i < BKK_CLUSTERS; i++) {
-		clusters[i].busy = bkk_sample(clusters[i].policy);
-		if (i != little)
-			busy = max(busy, clusters[i].busy);
-	}
-	if (bkk_decide(&load, busy, mode == 2)) {
-		for (i = 0; i < BKK_CLUSTERS; i++) {
-			if (i != little && bkk_vote(&clusters[i])) {
+		bkk_sample(&clusters[i]);
+		if (i == little)
+			continue;
+		if (bkk_decide(&clusters[i].load, clusters[i].peak, mode == 2, hot)) {
+			if (bkk_vote(&clusters[i])) {
 				bkk_stop("qos_error");
 				goto out;
 			}
+			boosting = true;
+		} else {
+			bkk_release_vote(&clusters[i]);
 		}
-		reason = "boost";
-	} else {
-		bkk_release_votes();
-		reason = load.hot ? "thermal" : "idle";
 	}
+	reason = hot ? "thermal" : boosting ? "boost" : "idle";
 	queue_delayed_work(system_freezable_power_efficient_wq,
 			   &bkk_work, BKK_INTERVAL);
 out:
@@ -210,6 +218,7 @@ static ssize_t request_store(struct kobject *kobj, struct kobj_attribute *attr,
 	char command[8], extra;
 	unsigned int next_mode, screen;
 	int battery, soc, ret = 0;
+	unsigned int i;
 
 	mutex_lock(&bkk_lock);
 	if (sysfs_streq(buf, "off")) {
@@ -227,7 +236,7 @@ static ssize_t request_store(struct kobject *kobj, struct kobj_attribute *attr,
 	}
 	battery_temp = battery;
 	soc_temp = soc;
-	bkk_thermal(&load, battery, soc);
+	hot = bkk_thermal(hot, battery, soc);
 	if (!screen || suspended) {
 		bkk_stop(suspended ? "suspend" : "screen_off");
 		goto out;
@@ -237,25 +246,24 @@ static ssize_t request_store(struct kobject *kobj, struct kobj_attribute *attr,
 		ret = bkk_get_policies();
 		if (ret)
 			goto out;
+		for (i = 0; i < BKK_CLUSTERS; i++)
+			bkk_sample(&clusters[i]);
 	} else if (mode != next_mode) {
 		bkk_release_votes();
-		load.high = 0;
-		load.low = 0;
 	}
 	mode = next_mode;
 	deadline = jiffies + BKK_LEASE;
-	if (load.hot) {
+	if (hot) {
 		bkk_release_votes();
-		load.high = 0;
-		load.low = 0;
 		reason = "thermal";
 	}
+
 	/* Refreshing a lease must not reset the automatic sampling interval. */
 	queue_delayed_work(system_freezable_power_efficient_wq,
 			   &bkk_work, BKK_INTERVAL);
 out:
 	mutex_unlock(&bkk_lock);
-	return ret ? ret : count;
+	return ret ? ret : (ssize_t)count;
 }
 
 static ssize_t status_show(struct kobject *kobj, struct kobj_attribute *attr,
@@ -267,9 +275,11 @@ static ssize_t status_show(struct kobject *kobj, struct kobj_attribute *attr,
 	count = sysfs_emit(buf,
 		"version=%s\nmode=%u\nstate=%s\nbattery_mC=%d\nsoc_mC=%d\n"
 		"cluster0_busy=%u\ncluster1_busy=%u\ncluster2_busy=%u\n"
+		"cluster0_peak=%u\ncluster1_peak=%u\ncluster2_peak=%u\n"
 		"cluster0_floor=%u\ncluster1_floor=%u\ncluster2_floor=%u\n",
 		BKK_VERSION, mode, reason, battery_temp, soc_temp,
 		clusters[0].busy, clusters[1].busy, clusters[2].busy,
+		clusters[0].peak, clusters[1].peak, clusters[2].peak,
 		clusters[0].floor, clusters[1].floor, clusters[2].floor);
 	mutex_unlock(&bkk_lock);
 	return count;
