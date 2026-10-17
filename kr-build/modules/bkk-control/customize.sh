@@ -3,7 +3,16 @@
 [ "$(getprop ro.product.device)" = sheng ] || abort '仅支持sheng'
 [ "$(getprop ro.soc.model)" = SM8550 ] || abort 'CPU配置不匹配'
 BUILT_RELEASE=$(sed -n 's/^KERNEL_RELEASE=//p' "$MODPATH/build-info.txt")
-[ "$(uname -r)" = "$BUILT_RELEASE" ] || abort '先启动本包配套的CaT内核，再安装控制模块'
+case "$BUILT_RELEASE" in
+    5.15.*_bkk-*) ;;
+    *) abort '配套内核版本信息无效' ;;
+esac
+CURRENT_RELEASE=$(uname -r)
+if [ "$CURRENT_RELEASE" != "$BUILT_RELEASE" ]; then
+    ui_print "当前内核: $CURRENT_RELEASE"
+    ui_print "配套内核: $BUILT_RELEASE"
+    ui_print '允许先安装，模块保持关闭；启动配套内核后才能启用'
+fi
 OLD=/data/adb/modules/bkk-control/bkctl
 if [ -x "$OLD" ]; then
     "$OLD" restore || abort '旧模块恢复失败'
