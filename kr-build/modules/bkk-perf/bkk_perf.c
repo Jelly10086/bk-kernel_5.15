@@ -161,7 +161,7 @@ static int bkk_vote(struct bkk_cluster *c)
 
 	/* Only add a minimum request; vendor and thermal maximums stay in charge. */
 	cap = min(READ_ONCE(c->policy->max), c->policy->cpuinfo.max_freq);
-	target = max(c->policy->cpuinfo.min_freq, cap / 100 * 60);
+	target = max(c->policy->cpuinfo.min_freq, cap / 100 * (mode == 2 ? 70 : 60));
 	target = min(target, cap);
 	cpufreq_for_each_valid_entry(entry, c->policy->freq_table)
 		if (entry->frequency <= target && entry->frequency > floor)
@@ -256,8 +256,24 @@ static ssize_t request_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (hot) {
 		bkk_release_votes();
 		reason = "thermal";
+	} else if (mode == 2) {
+		for (i = 0; i < BKK_CLUSTERS; i++) {
+			if (i == little)
+				continue;
+			ret = bkk_vote(&clusters[i]);
+			if (ret) {
+				bkk_stop("qos_error");
+				goto out;
+			}
+			clusters[i].load.boost = true;
+		}
+		reason = "boost";
+	} else {
+		reason = "idle";
+		for (i = 0; i < BKK_CLUSTERS; i++)
+			if (clusters[i].floor)
+				reason = "boost";
 	}
-
 	/* Refreshing a lease must not reset the automatic sampling interval. */
 	queue_delayed_work(system_freezable_power_efficient_wq,
 			   &bkk_work, BKK_INTERVAL);
