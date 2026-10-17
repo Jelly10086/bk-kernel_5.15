@@ -42,7 +42,7 @@ OUT_DIR=/path/to/existing/out bash kr-build/build-module.sh
 
 本地和CI单独输出`bkk-control-r1-261017.zip`、灰烬模式`bkk-ash-mode-r1-261017.ko`及校验文件，编号和日期跟随本次内核，Release同时发布
 
-在BakaSU安装控制模块，启动配套内核后再启用。灰烬模式默认关闭，WebUI可选关闭、自动或手动。只调整SM8550性能簇下限，保留GPU和120Hz策略
+在BakaSU安装控制模块，启动配套内核后再启用。灰烬模式默认关闭，WebUI可选关闭、开启、自动。只调整SM8550性能簇下限，保留GPU和120Hz策略
 
 CPU超过87°C或电池达到46°C撤销提升，回落至80°C和43°C允许恢复。熄屏、挂起或调用超时也撤销
 

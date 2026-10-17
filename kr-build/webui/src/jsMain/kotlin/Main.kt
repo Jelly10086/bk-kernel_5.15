@@ -566,8 +566,8 @@ private fun PolicyPager(
     onSetValue: (String, String) -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
-    val modeValues = listOf("disabled", "auto", "manual")
-    val modeLabels = listOf("关闭", "自动", "手动")
+    val modeValues = listOf("disabled", "manual", "auto")
+    val modeLabels = listOf("关闭", "开启", "自动")
     Scaffold(
         topBar = {
             TopAppBar(
