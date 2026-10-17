@@ -1,0 +1,9 @@
+UI: https://github.com/Rok23-byte/k2/tree/0d72e36991f29e001434b54a282cea948c82ab3a/bk_build/webui
+Log exporter: https://github.com/Rok23-byte/k2/tree/0d72e36991f29e001434b54a282cea948c82ab3a/bk_build/log-exporter
+Author: RinnRei (Rok23-byte)
+Miuix: 0.9.3, Apache-2.0 (LICENSE-miuix.txt)
+Compose: 1.11.1, Kotlin: 2.4.0, Skiko: 0.144.6
+Gradle: 9.0.0, JDK: 21
+
+保留原布局、资源、导航和日志保存组件，控制项适配sheng独立CPU LKM
+生成的webroot随模块发布，内核CI不需要重新编译UI

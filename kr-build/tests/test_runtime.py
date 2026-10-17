@@ -57,6 +57,39 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(self.calls.exists())
         self.assertIn('configured_mode=disabled', self.run_ctl('status').stdout)
 
+    def test_ui_read_keeps_unmatched_kernel_disabled(self):
+        result = self.run_ctl('get-all')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        self.assertEqual(values['kernel_compatible'], '0')
+        self.assertEqual(values['runtime_mode'], 'waiting_kernel')
+        self.assertEqual(values['mode'], 'disabled')
+        self.assertEqual(values['module_version'], 'P1')
+        self.assertFalse(self.calls.exists())
+        self.assertFalse((self.state / 'control.conf').exists())
+        self.assertFalse((self.state / 'daemon.pid').exists())
+
+    def test_ui_maps_kernel_state_without_loading_module(self):
+        (self.module / 'build-info.txt').write_text('KERNEL_RELEASE=5.15.216_bkk-CaT_r1\n')
+        self.state.mkdir()
+        (self.state / 'control.conf').write_text('mode=auto\n')
+        status = self.root / 'sysfs/status'
+        status.parent.mkdir()
+        for kernel_state, ui_state in [('boost', 'active'), ('thermal', 'cooling'), ('idle', 'warming')]:
+            status.write_text(f'state={kernel_state}\n')
+            result = self.run_ctl('get-all')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('kernel_compatible=1\n', result.stdout)
+            self.assertIn(f'runtime_mode={ui_state}\n', result.stdout)
+        self.assertFalse(self.calls.exists())
+
+    def test_log_names_reject_traversal_before_resolving_exporter(self):
+        for command in ['open-log', 'cleanup-log']:
+            for name in ['../../control.conf', 'bkk-control-1/../../control.conf.tar.gz', 'bkk-control-1.tar.gz']:
+                result = self.run_ctl(command, name)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('日志文件名无效', result.stderr)
+
     def test_restore_is_idempotent_and_withdraws_request(self):
         request = self.root / 'sysfs/request'
         request.parent.mkdir()

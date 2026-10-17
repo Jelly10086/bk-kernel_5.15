@@ -48,6 +48,11 @@ def package(out: Path, dist: Path, module: Path, clang: Path) -> Path:
     dist.mkdir(parents=True, exist_ok=True)
     destination = dist.resolve() / f'bkk-control-{revision}-{now.strftime("%Y%m%d-%H%M%S-%f")}'
     source = Path(__file__).with_name('modules') / 'bkk-control'
+    required = ['webroot/bkControl.js', 'webroot/bridge.js', 'webroot/index.html',
+                'webroot/style.css', 'webroot/LICENSE-miuix.txt', 'bin/bkk-log-exporter.apk',
+                'webroot/composeResources/org.bkkernel.control.generated.resources/font/bk_cjk.ttf']
+    if not all((source / name).is_file() for name in required) or not list((source / 'webroot').glob('*.wasm')):
+        raise ValueError('Miuix界面或日志保存组件不完整，请重新生成WebUI')
     with tempfile.TemporaryDirectory(prefix='.bkk-control-', dir=dist) as temp:
         stage = Path(temp)
         installer = stage / 'installer'

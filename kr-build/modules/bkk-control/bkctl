@@ -149,12 +149,131 @@ daemon() {
     done
 }
 
+get_all() {
+    read_mode
+    CURRENT_KERNEL=$(uname -r)
+    TARGET_KERNEL=$(sed -n 's/^KERNEL_RELEASE=//p' "$MODDIR/build-info.txt")
+    COMPATIBLE=0
+    RUNTIME=waiting_kernel
+    if [ -n "$TARGET_KERNEL" ] && [ "$CURRENT_KERNEL" = "$TARGET_KERNEL" ]; then
+        COMPATIBLE=1
+        RUNTIME=disabled
+        if [ "$MODE" != disabled ]; then
+            RUNTIME=$(sed -n 's/^state=//p' "$STATUS" 2>/dev/null || true)
+            case "$RUNTIME" in
+                boost) RUNTIME=active ;;
+                idle) RUNTIME=warming ;;
+                thermal) RUNTIME=cooling ;;
+                '') RUNTIME=inactive ;;
+            esac
+        fi
+    fi
+    CPU_TEMP=未读取
+    BATTERY_TEMP=未读取
+    if find_sensors; then
+        CPU_TEMP=$(max_temperature $CPU_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || CPU_TEMP=未读取
+        BATTERY_TEMP=$(max_temperature $BATTERY_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || BATTERY_TEMP=未读取
+        [ -n "$CPU_TEMP" ] || CPU_TEMP=未读取
+        [ -n "$BATTERY_TEMP" ] || BATTERY_TEMP=未读取
+    fi
+    printf 'system_version=%s\nandroid_version=%s\nkernel=%s\ntarget_kernel=%s\n' \
+        "$(getprop ro.system.build.version.incremental)" "$(getprop ro.build.version.release)" \
+        "$CURRENT_KERNEL" "$TARGET_KERNEL"
+    printf 'module_version=%s\nkernel_compatible=%s\nmode=%s\nruntime_mode=%s\n' \
+        "$(sed -n 's/^version=//p' "$MODDIR/module.prop")" "$COMPATIBLE" "$MODE" "$RUNTIME"
+    printf 'cpu_temperature=%s\nbattery_temperature=%s\n' "$CPU_TEMP" "$BATTERY_TEMP"
+}
+
+install_exporter() (
+    INSTALL_DIR=$("$BB" mktemp -d /data/local/tmp/bkk-exporter.XXXXXX) || die '无法暂存日志保存组件'
+    trap 'rm -rf "$INSTALL_DIR"' EXIT
+    cp "$MODDIR/bin/bkk-log-exporter.apk" "$INSTALL_DIR/exporter.apk"
+    chmod 0755 "$INSTALL_DIR"
+    chmod 0644 "$INSTALL_DIR/exporter.apk"
+    restorecon -RF "$INSTALL_DIR" >/dev/null 2>&1 || true
+    pm install -r --user 0 "$INSTALL_DIR/exporter.apk" >&2 || die '日志保存组件安装失败'
+)
+
+resolve_exporter() {
+    EXPORT_PACKAGE=org.bkkernel.logexport
+    if ! pm path "$EXPORT_PACKAGE" >/dev/null 2>&1; then
+        install_exporter
+    fi
+    EXPORT_INFO=$(dumpsys package "$EXPORT_PACKAGE") || die '无法读取日志保存组件'
+    EXPORT_UID=$(printf '%s\n' "$EXPORT_INFO" | awk -F= '/^[[:space:]]*(userId|appId)=/{sub(/[[:space:]].*/, "", $2); print $2; exit}')
+    EXPORT_DATA=$(printf '%s\n' "$EXPORT_INFO" | awk -F= '/^[[:space:]]*dataDir=/{sub(/[[:space:]].*/, "", $2); print $2; exit}')
+    case "$EXPORT_UID" in ''|*[!0-9]*) die '日志保存组件UID无效' ;; esac
+    case "$EXPORT_DATA" in
+        /data/user/0/org.bkkernel.logexport|/data/data/org.bkkernel.logexport) ;;
+        *) die '日志保存目录无效' ;;
+    esac
+    [ -d "$EXPORT_DATA" ] || die '日志保存目录不存在'
+    EXPORT_DIR=$EXPORT_DATA/files
+}
+
+valid_log_name() {
+    printf '%s\n' "$1" | "$BB" grep -Eq '^bkk-control-[0-9]{8}-[0-9]{6}-[0-9]+\.tar\.gz$'
+}
+
+collect_log() {
+    resolve_exporter
+    EXPORT_NAME=bkk-control-$(date '+%Y%m%d-%H%M%S')-$$.tar.gz
+    WORK=$("$BB" mktemp -d "$STATE/.export.XXXXXX") || die '无法创建日志临时目录'
+    EXPORT_TMP=$EXPORT_DIR/.$EXPORT_NAME.tmp
+    # 导出只在点击时执行，临时文件始终归本次调用所有
+    trap 'rm -f "$EXPORT_TMP"; rm -rf "$WORK"' EXIT
+    mkdir -p "$EXPORT_DIR"
+    chmod 0700 "$EXPORT_DIR"
+    chown "$EXPORT_UID:$EXPORT_UID" "$EXPORT_DIR"
+    get_all > "$WORK/overview.txt"
+    uname -a >> "$WORK/overview.txt"
+    for SOURCE in "$CONFIG" "$LOG" "$LOG.1" "$MODDIR/build-info.txt" "$MODDIR/module.prop" "$STATUS"; do
+        [ ! -r "$SOURCE" ] || cp "$SOURCE" "$WORK/$(basename "$SOURCE")"
+    done
+    cat /proc/meminfo > "$WORK/meminfo.txt"
+    dmesg | tail -n 1500 > "$WORK/dmesg.txt" || true
+    "$BB" tar -czf "$EXPORT_TMP" -C "$WORK" . || die '日志打包失败'
+    chown "$EXPORT_UID:$EXPORT_UID" "$EXPORT_TMP"
+    chmod 0600 "$EXPORT_TMP"
+    mv "$EXPORT_TMP" "$EXPORT_DIR/$EXPORT_NAME"
+    restorecon -RF "$EXPORT_DIR" >/dev/null 2>&1 || true
+    EXPORT_CONTEXT=$(ls -Zd "$EXPORT_DATA" | awk '{print $1; exit}')
+    if [ -n "$EXPORT_CONTEXT" ]; then
+        chcon "$EXPORT_CONTEXT" "$EXPORT_DIR" "$EXPORT_DIR/$EXPORT_NAME" >/dev/null 2>&1 || true
+    fi
+    printf 'name=%s\npath=%s/%s\n' "$EXPORT_NAME" "$EXPORT_DIR" "$EXPORT_NAME"
+}
+
+theme_seed() {
+    SEED=$(cmd overlay lookup android android:color/system_accent1_500 2>/dev/null | tail -n 1)
+    if printf '%s\n' "$SEED" | "$BB" grep -Eq '^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'; then
+        printf '%s\n' "$SEED"
+    else
+        printf '#6750a4\n'
+    fi
+}
+
 [ "$(id -u)" = 0 ] || die '需要root'
 [ -x "$BB" ] || die 'KernelSU BusyBox不存在'
 mkdir -p "$STATE"
 chmod 0700 "$STATE"
 exec 9>"$STATE/control.lock"
 case "${1:-status}" in
+    get-all) get_all ;;
+    theme-seed) theme_seed ;;
+    collect-log) collect_log ;;
+    open-log|cleanup-log)
+        [ "$#" = 2 ] && valid_log_name "$2" || die '日志文件名无效'
+        resolve_exporter
+        if [ "$1" = cleanup-log ]; then
+            rm -f "$EXPORT_DIR/$2"
+        else
+            [ -f "$EXPORT_DIR/$2" ] || die '日志文件不存在'
+            am start --user 0 -n "$EXPORT_PACKAGE/.ExportActivity" \
+                -f 0x10000000 --es name "$2" >/dev/null || die '无法打开日志保存窗口'
+            echo '请选择日志保存位置'
+        fi
+        ;;
     daemon) daemon ;;
     set)
         [ "$#" = 3 ] && [ "$2" = mode ] || die '用法：bkctl set mode disabled|auto|manual'
@@ -195,5 +314,5 @@ case "${1:-status}" in
         if [ -r "$STATUS" ]; then cat "$STATUS"; else printf 'state=unloaded\n'; fi
         ;;
     log) tail -n 150 "$LOG" 2>/dev/null || true ;;
-    *) die '用法：bkctl status|set mode disabled/auto/manual|restore|log' ;;
+    *) die '用法：bkctl status|get-all|set mode disabled/auto/manual|restore|log|collect-log|open-log NAME|cleanup-log NAME|theme-seed' ;;
 esac
