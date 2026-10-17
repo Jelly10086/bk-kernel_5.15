@@ -14,8 +14,8 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
-from datetime import datetime, timedelta, timezone
-from version import package_version, version_template
+from datetime import datetime, timezone
+from version import built_metadata, built_version, package_version, version_template
 
 
 def fetch_anykernel(cache: Path, commit: str) -> Path:
@@ -104,6 +104,9 @@ def zip_tree(source: Path, target: Path) -> None:
                          "META-INF/com/google/android/update-binary"):
             if relative not in archive.namelist():
                 raise ValueError(f"ZIP 缺少文件：{relative}")
+        if any(name.startswith(('module/', 'modules/')) or name.endswith('.ko')
+               for name in archive.namelist()):
+            raise ValueError('AK3不能包含独立控制模块')
 
 
 def main() -> None:
@@ -142,8 +145,7 @@ def main() -> None:
         raise ValueError(f"内核版本必须以 5.15 数字版本开头，否则 Android init 无法启动：{release}")
     custom_prefix = release_version.group(1) + "_bkk-"
     if release.startswith(custom_prefix):
-        package_release = re.sub(r"-c[0-9a-f]{12,40}(?:-dirty)?$", "", release)
-        version = package_version(package_release, release_version.group(1))
+        version = built_version(release)[0]
     else:
         if "-android13-8" not in release:
             raise ValueError(f"内核版本与 android13-5.15 / KMI 8 不符：{release}")
@@ -157,7 +159,7 @@ def main() -> None:
     args.dist_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%d-%H%M%S-%f")
-    package_date = now.astimezone(timezone(timedelta(hours=8))).strftime("%y%m%d")
+    package_date = built_metadata(out)["PACKAGE_DATE"]
     name = f"bkk-{version}-AK3"
     destination = args.dist_dir.resolve() / f"{name}-{stamp}"
     with tempfile.TemporaryDirectory(prefix=".package-", dir=args.dist_dir) as temp:

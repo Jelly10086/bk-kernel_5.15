@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 
 
 def version_segment(value: str) -> re.Match:
@@ -51,6 +52,39 @@ def package_version(value: str, kernel_version: str) -> str:
     label = release.split("_bkk-", 1)[1]
     brand, revision = label.rsplit("_", 1)
     return f"{brand}_13-{kernel_version}_{revision}"
+
+
+def built_version(release: str) -> tuple[str, str]:
+    value = re.sub(r"-c[0-9a-f]{12,40}(?:-dirty)?$", "", release)
+    match = re.fullmatch(r"(5\.15\.\d+)_bkk-(.+)", value)
+    if match is None or len(release) > 64:
+        raise ValueError(f"构建版本格式无效：{release}")
+    canonical = kernel_release(value, match.group(1))
+    if canonical != value:
+        raise ValueError(f"构建版本格式无效：{release}")
+    return package_version(value, match.group(1)), match.group(2).rsplit("_", 1)[1]
+
+
+def built_metadata(out: Path) -> dict[str, str]:
+    release = (out / "include/config/kernel.release").read_text().strip()
+    values = {}
+    for line in (out / "build-info.txt").read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            if key in values:
+                raise ValueError(f"构建元数据重复：{key}")
+            values[key] = value
+    if values.get("KERNEL_RELEASE") != release:
+        raise ValueError("kernel.release与构建元数据不一致")
+    if not re.fullmatch(r"[0-9a-f]{40}", values.get("KERNEL_COMMIT", "")):
+        raise ValueError("构建元数据缺少完整内核提交号")
+    values["MODULE_VERSION"] = built_version(release)[1]
+    if "PACKAGE_DATE" not in values:
+        values["PACKAGE_DATE"] = datetime.now(timezone(timedelta(hours=8))).strftime("%y%m%d")
+    if not re.fullmatch(r"\d{6}", values["PACKAGE_DATE"]):
+        raise ValueError("构建日期格式无效")
+    datetime.strptime(values["PACKAGE_DATE"], "%y%m%d")
+    return values
 
 
 def source_kernel_version() -> str:

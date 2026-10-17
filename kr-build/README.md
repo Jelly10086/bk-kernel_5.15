@@ -6,7 +6,7 @@ debian 依赖：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y bc bison build-essential ca-certificates cpio curl dwarves flex git libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
+sudo apt-get install -y bc bison build-essential ca-certificates cpio curl dwarves flex git kmod libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
 ```
 
 在内核仓库根目录执行：
@@ -37,4 +37,11 @@ GitHub Actions 的 `build bkk` 在启动时可填写 `version_name`，只覆盖�
 ```bash
 JOBS=8 bash kr-build/build.sh
 OUT_DIR=/path/to/existing/out bash kr-build/pack.sh
+OUT_DIR=/path/to/existing/out bash kr-build/build-module.sh
 ```
+
+本地和CI单独输出`bkk-control-r1-261017.zip`、`bkk_perf-r1-261017.ko`及校验文件，编号和日期跟随本次内核，Release同时发布
+
+启动配套内核后，在BakaSU安装控制模块。灰烬模式默认关闭，WebUI可选自动或手动；点击“关闭并恢复”停止提升。只调整SM8550性能簇下限，保留GPU和120Hz策略
+
+CPU超过87°C或电池达到46°C撤销提升，回落至80°C和43°C允许恢复。熄屏、挂起或调用超时也撤销

@@ -12,6 +12,7 @@ case "${1:-}" in
 esac
 [[ $# -le 1 ]] || die "参数过多"
 started_at=$SECONDS
+package_date=$(TZ=Asia/Shanghai date +%y%m%d)
 phase=依赖检查
 build_succeeded=0
 log_ready=0
@@ -68,7 +69,7 @@ if [[ -n $(git -C "$KERNEL_DIR" status --porcelain) ]]; then
 fi
 kernel_release=$(python3 "$KR_BUILD_DIR/version.py" --release "$PACKAGE_VERSION" --commit "$source_commit")
 require_commands make gcc g++ bc bison flex perl python3 openssl pkg-config pahole \
-    git gzip cpio rsync flock sha256sum
+    git gzip cpio rsync flock sha256sum modinfo
 check_clang
 kernel_cc=clang
 if [[ -n "${CCACHE:-}" ]]; then
@@ -170,6 +171,7 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
     printf 'CLANG_COMMIT=%s\nCLANG_PACKAGE=%s\n' "$CLANG_COMMIT" "$CLANG_PACKAGE"
     printf 'ANYKERNEL_COMMIT=%s\nJOBS=%s\n' "$ANYKERNEL_COMMIT" "$JOBS"
     printf 'KERNEL_RELEASE=%s\n' "$(cat "$OUT_DIR/include/config/kernel.release")"
+    printf 'PACKAGE_DATE=%s\n' "$package_date"
     printf 'CCACHE=%s\n' "${CCACHE:-disabled}"
     "$CLANG_DIR/bin/clang" --version
     pahole --version
@@ -177,4 +179,6 @@ grep -E '[[:space:]]rkx_init([.][^[:space:]]*)?$' "$OUT_DIR/vmlinux-symbols.txt"
 } > "$OUT_DIR/build-info.txt"
 phase=AK3打包
 PACKAGE_VERSION="$PACKAGE_VERSION" OUT_DIR="$OUT_DIR" DIST_DIR="$DIST_DIR" bash "$KR_BUILD_DIR/pack.sh"
+phase=bkk-control打包
+OUT_DIR="$OUT_DIR" DIST_DIR="$DIST_DIR" bash "$KR_BUILD_DIR/build-module.sh"
 build_succeeded=1
