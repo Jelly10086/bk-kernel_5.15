@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 360
     outputs:
       ak3-artifact: ${{ steps.ak3.outputs.artifact-id }}
+      control-artifact: ${{ steps.control.outputs.artifact-id }}
+      perf-artifact: ${{ steps.perf.outputs.artifact-id }}
       metadata-artifact: ${{ steps.metadata.outputs.artifact-id }}
     env:
       OUT_DIR: ${{ github.workspace }}/kr-build/out
@@ -62,7 +64,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ca-certificates ccache cpio curl dwarves flex git \
-            libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
+            kmod libelf-dev libssl-dev pkg-config python3 rsync zlib1g-dev
           source kr-build/pins.env
           {
             printf 'CLANG_DIR=%s/GoogleClang\n' "$RUNNER_TEMP"
@@ -198,7 +200,25 @@ jobs:
         id: ak3
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: kr-build/dist/*/*.zip
+          path: kr-build/dist/*/*-AK3-??????.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bkk-control module
+        id: control
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: kr-build/dist/*/bkk-control-*.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload CPU QoS LKM
+        id: perf
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: kr-build/dist/*/bkk_perf-*.ko
           archive: false
           if-no-files-found: error
           retention-days: 14
@@ -207,12 +227,25 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          packages=("$DIST_DIR"/*/*.zip)
+          packages=("$DIST_DIR"/*/*-AK3-??????.zip)
           (( ${#packages[@]} == 1 )) || { printf '[ERROR] 需要唯一的 AK3 安装包\n' >&2; exit 1; }
           bundle=$(dirname -- "${packages[0]}")
           (cd "$bundle" && sha256sum --check SHA256SUMS)
+          controls=("$DIST_DIR"/*/bkk-control-*.zip)
+          (( ${#controls[@]} == 1 )) || { printf '[ERROR] 需要唯一的控制模块包\n' >&2; exit 1; }
+          control_bundle=$(dirname -- "${controls[0]}")
+          (cd "$control_bundle" && sha256sum --check bkk-control-SHA256SUMS)
+          python3 - "${packages[0]}" "${controls[0]}" <<'PY'
+          import sys
+          import zipfile
+          with zipfile.ZipFile(sys.argv[1]) as kernel, zipfile.ZipFile(sys.argv[2]) as control:
+              assert not any(n.endswith('.ko') or n.startswith(('module/', 'modules/')) for n in kernel.namelist())
+              assert not any(n.startswith(('Image', 'tools/', 'META-INF/')) for n in control.namelist())
+              assert 'bkk_perf.ko' in control.namelist()
+          PY
           mkdir -p "$RUNNER_TEMP/release-metadata"
           cp -- "$bundle"/{SHA256SUMS,kernel.release,build-info.txt,gki.config,Module.symvers} "$RUNNER_TEMP/release-metadata/"
+          cp -- "$control_bundle"/{bkk-control-SHA256SUMS,bkk-control-build-info.txt} "$RUNNER_TEMP/release-metadata/"
 
       - name: Upload checksums and build metadata
         id: metadata
@@ -259,6 +292,20 @@ jobs:
           artifact-ids: ${{ needs.build.outputs.metadata-artifact }}
           path: ${{ runner.temp }}/release
 
+      - name: Download bkk-control module
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.control-artifact }}
+          path: ${{ runner.temp }}/release
+          skip-decompress: true
+
+      - name: Download CPU QoS LKM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.perf-artifact }}
+          path: ${{ runner.temp }}/release
+          skip-decompress: true
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -266,7 +313,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/release"
           sha256sum --check SHA256SUMS
+          sha256sum --check bkk-control-SHA256SUMS
           grep -qx "KERNEL_COMMIT=$GITHUB_SHA" build-info.txt
+          grep -qx "KERNEL_COMMIT=$GITHUB_SHA" bkk-control-build-info.txt
+          grep -qx "KERNEL_RELEASE=$(cat kernel.release)" bkk-control-build-info.txt
           shopt -s nullglob
           packages=(bkk-*-AK3-??????.zip)
           (( ${#packages[@]} == 1 )) || { printf '[ERROR] 需要唯一的 AK3 安装包\n' >&2; exit 1; }
@@ -275,6 +325,7 @@ jobs:
           {
             printf 'Kernel: `%s`\n\n' "$(cat kernel.release)"
             printf 'Commit: `%s`\n\n' "$GITHUB_SHA"
+            printf 'bkk-control: `%s` - 灰烬模式默认关闭\n\n' "$(sed -n 's/^MODULE_VERSION=//p' bkk-control-build-info.txt)"
             printf '[Build](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } > "$RUNNER_TEMP/release-notes.txt"
           gh release create "$tag" ./* --repo "$GITHUB_REPOSITORY" \
