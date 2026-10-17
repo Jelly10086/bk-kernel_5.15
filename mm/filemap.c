@@ -2589,8 +2589,10 @@ retry:
 			goto err;
 	}
 	if (!PageUptodate(page)) {
-		if ((iocb->ki_flags & IOCB_WAITQ) && pagevec_count(pvec) > 1)
-			iocb->ki_flags |= IOCB_NOWAIT;
+		if (pagevec_count(pvec) > 1) {
+			err = -EAGAIN;
+			goto err;
+		}
 		err = filemap_update_page(iocb, mapping, iter, page);
 		if (err)
 			goto err;
