@@ -63,6 +63,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.bkkernel.control.generated.resources.Res
 import org.bkkernel.control.generated.resources.save_log
+import org.bkkernel.control.generated.resources.play_fill
+import org.bkkernel.control.generated.resources.stop_fill
 import org.jetbrains.compose.resources.painterResource
 import org.khronos.webgl.Int8Array
 import org.w3c.fetch.RequestInit
@@ -71,6 +73,7 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
@@ -110,6 +113,8 @@ private data class ControlState(
     val kernelCompatible: Boolean = false,
     val mode: String = "disabled",
     val runtimeMode: String = "unknown",
+    val captureState: String = "idle",
+    val captureRetry: Boolean = false,
 )
 
 private data class ExecResult(val errno: Int, val stdout: String, val stderr: String)
@@ -139,6 +144,8 @@ private fun parseState(text: String): ControlState {
         kernelCompatible = values["kernel_compatible"] == "1",
         mode = values["mode"] ?: "disabled",
         runtimeMode = values["runtime_mode"] ?: "unknown",
+        captureState = values["performance_state"] ?: "idle",
+        captureRetry = values["performance_retry"] == "1",
     )
 }
 
@@ -305,6 +312,28 @@ private fun ControlScreen() {
         }
     }
 
+    fun capture(action: String) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                commands.withLock {
+                    try {
+                        val result = runBkctl("perf $action")
+                        bkToast(if (result.errno == 0) result.stdout.trim() else result.stderr.ifBlank { "采样操作失败" })
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        bkToast(error.message ?: "采样操作失败")
+                    }
+                    readState(reportErrors = true)
+                }
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         refresh()
         while (isActive) {
@@ -339,6 +368,7 @@ private fun ControlScreen() {
                         bottomPadding = bottomPadding,
                         onSaveLogs = ::saveLogs,
                         onSetValue = ::setValue,
+                        onCapture = ::capture,
                     )
                 }
             }
@@ -599,6 +629,7 @@ private fun PolicyPager(
     bottomPadding: Dp,
     onSaveLogs: () -> Unit,
     onSetValue: (String, String) -> Unit,
+    onCapture: (String) -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
     val modeValues = listOf("disabled", "manual", "auto")
@@ -635,6 +666,59 @@ private fun PolicyPager(
                         onSelectedIndexChange = { onSetValue("mode", modeValues[it]) },
                     )
                 }
+            }
+            item {
+                CaptureCard(state, busy, onCapture)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureCard(state: ControlState, busy: Boolean, onCapture: (String) -> Unit) {
+    val active = state.captureState in listOf("choosing", "recording", "stopping", "saving")
+    val startEnabled = !busy && !active && !state.captureRetry
+    val stopEnabled = !busy && (state.captureState in listOf("choosing", "recording") || (!active && state.captureRetry))
+    val summary = when (state.captureState) {
+        "choosing" -> "选择保存位置后开始"
+        "recording" -> "正在采集，可离开页面运行游戏"
+        "stopping", "saving" -> "正在停止并保存"
+        "saved" -> "已保存到所选位置"
+        "cancelled" -> "已取消，未开始采集"
+        "ready", "error", "interrupted" -> if (state.captureRetry) "日志已保留，点停止按钮重试保存" else "未开始采集，可重新选择位置"
+        else -> "默认关闭，开始前选择保存位置"
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("抓取性能分析", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+                Text(summary, fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+            IconButton(
+                onClick = { onCapture("start") }, enabled = startEnabled,
+                minWidth = 44.dp, minHeight = 44.dp,
+                backgroundColor = MiuixTheme.colorScheme.surfaceVariant,
+            ) {
+                Image(
+                    painterResource(Res.drawable.play_fill), contentDescription = "开始性能采集",
+                    modifier = Modifier.size(24.dp),
+                    colorFilter = ColorFilter.tint(if (startEnabled) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.disabledOnSurface),
+                )
+            }
+            IconButton(
+                onClick = { onCapture("stop") }, enabled = stopEnabled,
+                minWidth = 44.dp, minHeight = 44.dp,
+                backgroundColor = MiuixTheme.colorScheme.surfaceVariant,
+            ) {
+                Image(
+                    painterResource(Res.drawable.stop_fill), contentDescription = "停止并保存性能日志",
+                    modifier = Modifier.size(24.dp),
+                    colorFilter = ColorFilter.tint(if (stopEnabled) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.disabledOnSurface),
+                )
             }
         }
     }

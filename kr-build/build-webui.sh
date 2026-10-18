@@ -30,5 +30,6 @@ for path in target.glob('*.wasm'):
 for path in wasm:
     shutil.copy2(path, target / path.name)
 shutil.copy2(root / 'webui/LICENSE-miuix.txt', target / 'LICENSE-miuix.txt')
+shutil.copy2(root / 'webui/src/jsMain/resources/LICENSE-remixicon.txt', target / 'LICENSE-remixicon.txt')
 print(f'[OK] WebUI：{target}')
 PY
