@@ -680,7 +680,7 @@ private fun PolicyPager(
 @Composable
 private fun CaptureCard(state: ControlState, busy: Boolean, onCapture: (String) -> Unit) {
     val active = state.captureState in listOf("choosing", "recording", "stopping", "saving")
-    val startEnabled = !busy && !active && !state.captureRetry
+    val startEnabled = !busy && !active
     val stopEnabled = !busy && (state.captureState in listOf("choosing", "recording") || (!active && state.captureRetry))
     val summary = when (state.captureState) {
         "choosing" -> "选择保存位置后开始"
@@ -688,7 +688,7 @@ private fun CaptureCard(state: ControlState, busy: Boolean, onCapture: (String) 
         "stopping", "saving" -> "正在停止并保存"
         "saved" -> "已保存到所选位置"
         "cancelled" -> "已取消，未开始采集"
-        "ready", "error", "interrupted" -> if (state.captureRetry) "日志已保留，点停止按钮重试保存" else "未开始采集，可重新选择位置"
+        "ready", "error", "interrupted" -> if (state.captureRetry) "日志已保留，点停止重试或开始新采集" else "未开始采集，可重新选择位置"
         else -> "默认关闭，开始前选择保存位置"
     }
     Card(Modifier.fillMaxWidth()) {

@@ -50,6 +50,30 @@ exporter() {
     case "$EXPORT_CONTEXT" in u:object_r:app_data_file:*) ;; *) EXPORT_CONTEXT= ;; esac
     [ -z "$EXPORT_CONTEXT" ] || chcon "$EXPORT_CONTEXT" "$EXPORT_DIR" 2>/dev/null || true
 }
+autostart_mode() {
+    cmd appops get --user 0 org.bkkernel.logexport 10008 2>/dev/null |
+        sed -n 's/^MIUIOP(10008): \([a-z]*\).*/\1/p'
+}
+restore_exporter() (
+    [ -f "$BASE/autostart-mode" ] || return 0
+    MODE=$(cat "$BASE/autostart-mode")
+    case "$MODE" in allow|ignore|deny|default) ;; *) return 1 ;; esac
+    # 只撤销本轮临时允许，不覆盖用户在采集期间改成的其他状态
+    if [ "$(autostart_mode)" = allow ]; then
+        cmd appops set --user 0 org.bkkernel.logexport 10008 "$MODE" >/dev/null || return 1
+    fi
+    rm -f "$BASE/autostart-mode"
+)
+prepare_exporter() {
+    restore_exporter || return 1
+    [ -n "$(getprop ro.miui.ui.version)$(getprop ro.mi.os.version.name)" ] || return 0
+    MODE=$(autostart_mode)
+    case "$MODE" in ignore|deny|default) ;; *) return 0 ;; esac
+    printf '%s\n' "$MODE" > "$BASE/.autostart-mode.tmp"
+    mv -f "$BASE/.autostart-mode.tmp" "$BASE/autostart-mode"
+    # 澎湃OS会拦截被回收后的导出服务，仅在用户采集和保存期间放行
+    cmd appops set --user 0 org.bkkernel.logexport 10008 allow >/dev/null
+}
 birth() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '$1 != "Z" {print $20}'; }
 stop_child() {
     [ -n "$1" ] && [ -n "$2" ] || return 0
@@ -109,8 +133,13 @@ CFG
     TRACE_BIRTH=$(birth "$TRACE_PID")
 }
 save_archive() {
-    report saving
-    rm -f "$EXPORT_DIR/$NAME.tar.gz.result"
+    if [ "$(cat "$EXPORT_DIR/$NAME.tar.gz.result" 2>/dev/null)" = saved ]; then
+        report saved
+        touch "$BASE/$NAME.saved"
+        rm -f "$EXPORT_DIR/$NAME.tar.gz.request" "$EXPORT_DIR/$NAME.tar.gz.choice" "$EXPORT_DIR/$NAME.tar.gz.stop"
+        return 0
+    fi
+    rm -f "$EXPORT_DIR/$NAME.tar.gz.result" "$EXPORT_DIR/$NAME.tar.gz.failure"
     if ! cp "$BASE/$NAME.tar.gz" "$BASE/.$NAME.archive.tmp" || \
         ! own_file "$BASE/.$NAME.archive.tmp" || \
         ! "$BB" mv -fT "$BASE/.$NAME.archive.tmp" "$EXPORT_DIR/$NAME.tar.gz"; then
@@ -118,9 +147,19 @@ save_archive() {
         report error
         return 1
     fi
+    # 完整归档发布后才通知组件复制，避免重试时读到上次残留文件
+    report saving
     if [ "${RESUME:-0}" = 1 ]; then
         "$BB" timeout -s KILL 10 am start --user 0 -n org.bkkernel.logexport/.PerformanceActivity \
             -f 0x10000000 --es operation resume --es name "$NAME.tar.gz" >/dev/null || { report error; return 1; }
+    else
+        # 通知进程可能已被系统回收，归档完成后显式恢复导出服务
+        "$BB" timeout -s KILL 10 am start-foreground-service --user 0 \
+            -n org.bkkernel.logexport/.CaptureService --es name "$NAME.tar.gz" >/dev/null || {
+                publish failure 'Cannot restart export service'
+                report error
+                return 1
+            }
     fi
     COUNT=0
     while [ "$COUNT" -lt 600 ]; do
@@ -128,6 +167,7 @@ save_archive() {
         case "$RESULT" in
             saved)
                 report saved
+                touch "$BASE/$NAME.saved"
                 rm -f "$EXPORT_DIR/$NAME.tar.gz.request" "$EXPORT_DIR/$NAME.tar.gz.choice" "$EXPORT_DIR/$NAME.tar.gz.stop"
                 return 0 ;;
             error) report error; return 1 ;;
@@ -155,18 +195,18 @@ finish_capture() {
     } > "$WORK/final.txt"
     if ! "$BB" tar -czf "$BASE/.$NAME.tar.gz.tmp" -C "$WORK" .; then
         report error
+        restore_exporter
         exit 1
     fi
-    if ! mv -f "$BASE/.$NAME.tar.gz.tmp" "$BASE/$NAME.tar.gz"; then report error; exit 1; fi
+    if ! mv -f "$BASE/.$NAME.tar.gz.tmp" "$BASE/$NAME.tar.gz"; then report error; restore_exporter; exit 1; fi
     PREVIOUS_ARCHIVE=$(cat "$BASE/latest" 2>/dev/null || true)
     printf '%s.tar.gz\n' "$NAME" > "$BASE/.latest.tmp"
     mv -f "$BASE/.latest.tmp" "$BASE/latest"
-    if valid_name "${PREVIOUS_ARCHIVE%.tar.gz}" && [ "$PREVIOUS_ARCHIVE" != "$NAME.tar.gz" ]; then
-        rm -f "$BASE/$PREVIOUS_ARCHIVE"
+    if valid_name "${PREVIOUS_ARCHIVE%.tar.gz}" && [ "$PREVIOUS_ARCHIVE" != "$NAME.tar.gz" ] &&
+        [ -f "$BASE/${PREVIOUS_ARCHIVE%.tar.gz}.saved" ]; then
+        rm -f "$BASE/$PREVIOUS_ARCHIVE" "$BASE/${PREVIOUS_ARCHIVE%.tar.gz}.saved"
     fi
-    if [ "${REASON:-}" = notification_lost ]; then
-        report error
-    elif [ "$(cat "$EXPORT_DIR/$NAME.tar.gz.stop" 2>/dev/null)" = cancel ]; then
+    if [ "$(cat "$EXPORT_DIR/$NAME.tar.gz.stop" 2>/dev/null)" = cancel ]; then
         report ready
     else
         save_archive || RC=1
@@ -174,6 +214,7 @@ finish_capture() {
     # 本轮原始文件仅在压缩包完成后清理，失败时保留以便恢复
     rm -f "$WORK"/*
     rmdir "$WORK" 2>/dev/null || true
+    restore_exporter
     exit "$RC"
 }
 worker() {
@@ -182,6 +223,8 @@ worker() {
     WORK=$BASE/$NAME
     [ -d "$WORK" ] && "$BB" flock -n 8 || exit 1
     exporter "$2" "$3"
+    trap restore_exporter EXIT
+    prepare_exporter || { report error; return 1; }
     renice 10 $$ >/dev/null 2>&1 || true
     "$BB" ionice -c 3 -p $$ >/dev/null 2>&1 || true
     printf '%s\n' "$$" > "$WORK/ready"
@@ -261,10 +304,6 @@ case "${1:-status}" in
         exec 8>"$BASE/capture.lock"
         "$BB" flock -n 8 || die '性能采样仍在运行或保存'
         PREVIOUS=$(cat "$BASE/active" 2>/dev/null || true)
-        if valid_name "$PREVIOUS" && [ "$(value performance_state)" != saved ] && \
-            { [ -f "$BASE/$PREVIOUS.tar.gz" ] || [ -f "$BASE/$PREVIOUS/metadata.txt" ]; }; then
-            die '上次日志尚未保存，请先点击停止按钮重试'
-        fi
         if valid_name "$PREVIOUS" && [ "$(value performance_state)" = saved ]; then
             for SUFFIX in request choice stop result progress heartbeat lock; do rm -f "$EXPORT_DIR/$PREVIOUS.tar.gz.$SUFFIX"; done
         fi
@@ -319,6 +358,9 @@ case "${1:-status}" in
         fi
         ;;
     status)
+        if [ -f "$BASE/autostart-mode" ]; then
+            (exec 8>"$BASE/capture.lock"; "$BB" flock -n 8 || exit 0; restore_exporter)
+        fi
         if [ ! -f "$BASE/status" ]; then echo performance_state=idle; echo performance_retry=0; exit 0; fi
         PHASE=$(value performance_state)
         if ! running; then
@@ -326,6 +368,13 @@ case "${1:-status}" in
         fi
         sed '/^performance_state=/d; /^performance_retry=/d' "$BASE/status"
         NAME=$(cat "$BASE/active" 2>/dev/null || true)
+        if valid_name "$NAME" && [ -r "$BASE/exporter" ]; then
+            IFS='|' read -r DATA UID_VALUE < "$BASE/exporter"
+            case "$DATA" in
+                /data/user/0/org.bkkernel.logexport|/data/data/org.bkkernel.logexport)
+                    if [ "$(cat "$DATA/files/$NAME.tar.gz.result" 2>/dev/null)" = saved ]; then PHASE=saved; fi ;;
+            esac
+        fi
         RETRY=0
         if valid_name "$NAME" && [ "$PHASE" != saved ] && \
             { [ -f "$BASE/$NAME.tar.gz" ] || [ -f "$BASE/$NAME/metadata.txt" ]; }; then RETRY=1; fi

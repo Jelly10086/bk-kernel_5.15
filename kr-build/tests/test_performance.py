@@ -192,7 +192,6 @@ while True: time.sleep(0.1)
         self.acknowledge('error')
         self.assertEqual(self.status()['performance_retry'], '1')
         original = (self.base / (self.name + '.tar.gz')).read_bytes()
-        self.assertNotEqual(self.call('start', str(self.data), '10000').returncode, 0)
         result = self.call('stop')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.wait_for(self.archive_ready)
@@ -201,12 +200,64 @@ while True: time.sleep(0.1)
         self.wait_for(lambda: self.status()['performance_state'] == 'saved')
         self.assertEqual((self.base / (self.name + '.tar.gz')).read_bytes(), original)
 
+    def test_failed_export_does_not_block_new_capture_or_delete_old_archive(self):
+        self.start()
+        first = self.name
+        self.call('stop')
+        self.acknowledge('error')
+        original = (self.base / (first + '.tar.gz')).read_bytes()
+        self.start()
+        self.call('stop')
+        self.acknowledge()
+        self.assertEqual((self.base / (first + '.tar.gz')).read_bytes(), original)
+        self.assertTrue((self.files / (first + '.tar.gz')).exists())
+
+    def test_late_export_ack_recovers_failed_status(self):
+        self.start()
+        self.call('stop')
+        self.acknowledge('error')
+        self.marker('result').write_text('saved\n')
+        self.assertEqual(self.status()['performance_state'], 'saved')
+        self.assertEqual(self.status()['performance_retry'], '0')
+
     def test_uninstall_cancel_stops_children_and_preserves_archive(self):
         self.start()
         result = self.call('cancel')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.status()['performance_state'], 'ready')
         self.assertTrue((self.base / (self.name + '.tar.gz')).is_file())
+
+    def mock_hyperos_autostart(self):
+        mode = self.root / 'autostart-mode'
+        mode.write_text('ignore\n')
+        cmd = self.bin / 'cmd'
+        cmd.write_text('#!/bin/sh\n' + f'''case "$1 $2" in
+"appops get") printf 'MIUIOP(10008): %s\\n' "$(cat "{mode}")" ;;
+"appops set") printf '%s\\n' "$7" > "{mode}" ;;
+*) echo "package:net.kdt.pojavlaunch uid:10123" ;;
+esac
+''')
+        return mode
+
+    def test_hyperos_permission_is_scoped_to_capture_and_save(self):
+        mode = self.mock_hyperos_autostart()
+        self.start()
+        self.assertEqual(mode.read_text().strip(), 'allow')
+        self.call('stop')
+        self.wait_for(self.archive_ready)
+        self.marker('result').write_text('error\n')
+        # 不通过status触发恢复，核对worker退出本身是否撤销临时权限
+        self.wait_for(lambda: subprocess.run(['flock', '-n', str(self.base / 'capture.lock'), 'true']).returncode == 0)
+        self.assertEqual(mode.read_text().strip(), 'ignore')
+        self.assertFalse((self.base / 'autostart-mode').exists())
+
+    def test_dead_sampler_permission_is_restored_before_recovery(self):
+        mode = self.mock_hyperos_autostart()
+        self.start()
+        self.assertEqual(mode.read_text().strip(), 'allow')
+        os.kill(int((self.base / self.name / 'ready').read_text()), signal.SIGKILL)
+        self.wait_for(lambda: self.status()['performance_state'] == 'interrupted')
+        self.assertEqual(mode.read_text().strip(), 'ignore')
 
     def test_invalid_helper_data_path_rejected_before_launch(self):
         result = self.call('start', str(self.root), '10000')
@@ -232,6 +283,7 @@ while True: time.sleep(0.1)
         self.start()
         self.wait_for(lambda: self.status()['performance_state'] == 'error')
         self.assertEqual(self.status()['performance_retry'], '1')
+        self.assertIn('start-foreground-service', self.calls.read_text())
         with tarfile.open(self.base / (self.name + '.tar.gz')) as archive:
             self.assertIn('reason=notification_lost', archive.extractfile('./final.txt').read().decode())
 
