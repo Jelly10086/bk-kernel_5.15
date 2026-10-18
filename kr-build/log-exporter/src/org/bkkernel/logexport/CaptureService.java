@@ -84,7 +84,7 @@ public final class CaptureService extends Service {
         Notification.Builder builder = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .setContentTitle(recording ? "正在进行性能采集" : "正在保存性能日志")
-                .setContentText(recording ? "可在通知中停止并保存" : "压缩并写入已选择的位置")
+                .setContentText(recording ? "长按以停止采集并保存" : "压缩并写入已选择的位置")
                 .setCategory(Notification.CATEGORY_SERVICE).setOngoing(true).setOnlyAlertOnce(true)
                 .setShowWhen(false);
         if (Build.VERSION.SDK_INT >= 31) builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);

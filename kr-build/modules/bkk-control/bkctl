@@ -231,7 +231,7 @@ resolve_exporter() {
     EXPORT_INFO=$(dumpsys package "$EXPORT_PACKAGE") || die '无法读取日志保存组件'
     EXPORT_VERSION=$(printf '%s\n' "$EXPORT_INFO" | sed -n 's/^[[:space:]]*versionCode=\([0-9]*\).*/\1/p' | head -n 1)
     case "$EXPORT_VERSION" in ''|*[!0-9]*) die '日志保存组件版本无效' ;; esac
-    if [ "$EXPORT_VERSION" -lt 3 ]; then
+    if [ "$EXPORT_VERSION" -lt 4 ]; then
         install_exporter
         EXPORT_INFO=$(dumpsys package "$EXPORT_PACKAGE") || die '无法读取更新后的日志保存组件'
     fi
