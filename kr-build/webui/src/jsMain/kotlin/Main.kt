@@ -128,24 +128,24 @@ private suspend fun runBkctl(arguments: String): ExecResult {
     )
 }
 
-private fun parseState(text: String): ControlState {
+private fun parseState(text: String, previous: ControlState): ControlState {
     val values = text.lineSequence()
         .mapNotNull { line ->
             val separator = line.indexOf('=')
             if (separator <= 0) null else line.substring(0, separator) to line.substring(separator + 1)
         }
         .toMap()
-    return ControlState(
-        systemVersion = values["system_version"] ?: "未知",
-        androidVersion = values["android_version"] ?: "未知",
-        kernel = values["kernel"] ?: "未知",
-        targetKernel = values["target_kernel"] ?: "未知",
-        moduleVersion = values["module_version"] ?: "未知",
-        kernelCompatible = values["kernel_compatible"] == "1",
-        mode = values["mode"] ?: "disabled",
-        runtimeMode = values["runtime_mode"] ?: "unknown",
-        captureState = values["performance_state"] ?: "idle",
-        captureRetry = values["performance_retry"] == "1",
+    return previous.copy(
+        systemVersion = values["system_version"] ?: previous.systemVersion,
+        androidVersion = values["android_version"] ?: previous.androidVersion,
+        kernel = values["kernel"] ?: previous.kernel,
+        targetKernel = values["target_kernel"] ?: previous.targetKernel,
+        moduleVersion = values["module_version"] ?: previous.moduleVersion,
+        kernelCompatible = values["kernel_compatible"]?.let { it == "1" } ?: previous.kernelCompatible,
+        mode = values["mode"] ?: previous.mode,
+        runtimeMode = values["runtime_mode"] ?: previous.runtimeMode,
+        captureState = values["performance_state"] ?: previous.captureState,
+        captureRetry = values["performance_retry"]?.let { it == "1" } ?: previous.captureRetry,
     )
 }
 
@@ -231,6 +231,7 @@ private fun FontBootstrap() {
 @Composable
 private fun ControlScreen() {
     var state by remember { mutableStateOf(ControlState()) }
+    var metadataLoaded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val commands = remember { Mutex() }
@@ -241,11 +242,13 @@ private fun ControlScreen() {
         mainPagerState.syncPage()
     }
 
-    suspend fun readState(reportErrors: Boolean) {
+    suspend fun readState(reportErrors: Boolean, full: Boolean = false) {
         try {
-            val result = runBkctl("get-all")
+            val includeMetadata = full || !metadataLoaded
+            val result = runBkctl(if (includeMetadata) "get-all" else "get-runtime")
             if (result.errno == 0) {
-                state = parseState(result.stdout)
+                state = parseState(result.stdout, state)
+                if (includeMetadata) metadataLoaded = true
             } else if (reportErrors) {
                 bkToast(result.stderr.ifBlank { "读取失败：${result.errno}" })
             }
@@ -261,7 +264,7 @@ private fun ControlScreen() {
         busy = true
         scope.launch {
             try {
-                commands.withLock { readState(reportErrors = true) }
+                commands.withLock { readState(reportErrors = true, full = true) }
             } finally {
                 busy = false
             }
