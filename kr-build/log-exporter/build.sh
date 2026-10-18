@@ -15,7 +15,7 @@ javac -source 8 -target 8 -Xlint:-options -cp "$ANDROID_JAR" \
 jar cf "$WORK/classes.jar" -C "$WORK/classes" .
 d8 --lib "$ANDROID_JAR" --min-api 26 --output "$WORK/dex" "$WORK/classes.jar"
 aapt2 link -o "$WORK/unsigned.apk" -I "$ANDROID_JAR" \
-    --manifest "$SCRIPT_DIR/AndroidManifest.xml" --version-code 4 --version-name 4 \
+    --manifest "$SCRIPT_DIR/AndroidManifest.xml" --version-code 5 --version-name 5 \
     --min-sdk-version 26 --target-sdk-version 36
 zip -q -j "$WORK/unsigned.apk" "$WORK/dex/classes.dex"
 APK=$SCRIPT_DIR/../modules/bkk-control/bin/bkk-log-exporter.apk

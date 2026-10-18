@@ -4,8 +4,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.util.AtomicFile;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,6 +17,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class CaptureStore {
     final Context context;
@@ -72,7 +80,7 @@ final class CaptureStore {
         if (!preferences().edit().putString(name, uri.toString())
                 .putInt(name + ".flags", flags).commit()) {
             try { context.getContentResolver().releasePersistableUriPermission(uri, flags); }
-            catch (SecurityException ignored) { }
+            catch (RuntimeException ignored) { }
             throw new IOException("Destination not saved");
         }
     }
@@ -87,13 +95,25 @@ final class CaptureStore {
             try {
                 context.getContentResolver().releasePersistableUriPermission(uri,
                         preferences().getInt(name + ".flags", 0));
-            } catch (SecurityException ignored) { }
+            } catch (RuntimeException ignored) { }
         }
         preferences().edit().remove(name).remove(name + ".flags").commit();
     }
 
     boolean save() {
         // ACK只在输出流关闭后写入，失败时保留源文件和URI授权供重试
+        CancellationSignal cancellation = new CancellationSignal();
+        AtomicReference<ParcelFileDescriptor> descriptor = new AtomicReference<>();
+        AtomicBoolean timedOut = new AtomicBoolean();
+        ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor();
+        watchdog.schedule(() -> {
+            timedOut.set(true);
+            ParcelFileDescriptor open = descriptor.get();
+            if (open != null) {
+                try { open.close(); } catch (IOException ignored) { }
+            }
+            cancellation.cancel();
+        }, 90, TimeUnit.SECONDS);
         try (FileOutputStream lockFile = new FileOutputStream(file(".lock"));
              FileLock lock = lockFile.getChannel().lock()) {
             if ("saved".equals(read(".result"))) return true;
@@ -101,21 +121,30 @@ final class CaptureStore {
             File source = file("");
             if (uri == null || !source.isFile() || !source.getCanonicalFile().getParentFile()
                     .equals(context.getFilesDir().getCanonicalFile())) throw new IOException("No capture archive");
-            try (FileInputStream input = new FileInputStream(source);
-                 OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
-                if (output == null) throw new IOException("Destination unavailable");
+            ParcelFileDescriptor outputFile = context.getContentResolver().openFileDescriptor(uri, "wt", cancellation);
+            if (outputFile == null) throw new IOException("Destination unavailable");
+            descriptor.set(outputFile);
+            try (ParcelFileDescriptor handle = outputFile;
+                 FileInputStream input = new FileInputStream(source);
+                 OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(handle)) {
+                cancellation.throwIfCanceled();
                 byte[] buffer = new byte[64 * 1024];
                 int count;
                 while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
                 output.flush();
             }
+            if (timedOut.get()) throw new IOException("Export timed out");
             if (!write(".result", "saved")) throw new IOException("ACK not saved");
             source.delete();
             release(false);
             return true;
-        } catch (IOException | SecurityException error) {
+        } catch (IOException | RuntimeException error) {
+            Log.e("BkkCapture", "Export failed: " + name, error);
+            write(".failure", error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
             write(".result", "error");
             return false;
+        } finally {
+            watchdog.shutdownNow();
         }
     }
 }
