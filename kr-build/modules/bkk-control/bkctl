@@ -157,7 +157,7 @@ daemon() {
     done
 }
 
-get_all() {
+get_runtime() {
     "$BB" flock 9
     read_mode
     CURRENT_KERNEL=$(uname -r)
@@ -192,25 +192,20 @@ get_all() {
         fi
     fi
     "$BB" flock -u 9
-    CPU_TEMP=未读取
-    BATTERY_TEMP=未读取
-    if find_sensors; then
-        CPU_TEMP=$(max_temperature $CPU_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || CPU_TEMP=未读取
-        BATTERY_TEMP=$(max_temperature $BATTERY_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || BATTERY_TEMP=未读取
-        [ -n "$CPU_TEMP" ] || CPU_TEMP=未读取
-        [ -n "$BATTERY_TEMP" ] || BATTERY_TEMP=未读取
-    fi
-    printf 'system_version=%s\nandroid_version=%s\nkernel=%s\ntarget_kernel=%s\n' \
-        "$(getprop ro.system.build.version.incremental)" "$(getprop ro.build.version.release)" \
-        "$CURRENT_KERNEL" "$TARGET_KERNEL"
-    printf 'module_version=%s\nkernel_compatible=%s\nmode=%s\nruntime_mode=%s\n' \
-        "$(sed -n 's/^version=//p' "$MODDIR/module.prop")" "$COMPATIBLE" "$MODE" "$RUNTIME"
-    printf 'cpu_temperature=%s\nbattery_temperature=%s\n' "$CPU_TEMP" "$BATTERY_TEMP"
+    printf 'kernel_compatible=%s\nmode=%s\nruntime_mode=%s\n' "$COMPATIBLE" "$MODE" "$RUNTIME"
     if [ -f "$MODDIR/performance.sh" ]; then
         "$BB" sh "$MODDIR/performance.sh" status
     else
         printf 'performance_state=idle\nperformance_retry=0\n'
     fi
+}
+
+get_all() {
+    printf 'system_version=%s\nandroid_version=%s\nkernel=%s\ntarget_kernel=%s\nmodule_version=%s\n' \
+        "$(getprop ro.system.build.version.incremental)" "$(getprop ro.build.version.release)" \
+        "$(uname -r)" "$(sed -n 's/^KERNEL_RELEASE=//p' "$MODDIR/build-info.txt")" \
+        "$(sed -n 's/^version=//p' "$MODDIR/module.prop")"
+    get_runtime
 }
 
 install_exporter() (
@@ -261,6 +256,15 @@ collect_log() {
     chmod 0700 "$EXPORT_DIR"
     chown "$EXPORT_UID:$EXPORT_UID" "$EXPORT_DIR"
     get_all > "$WORK/overview.txt"
+    CPU_TEMP=未读取
+    BATTERY_TEMP=未读取
+    if find_sensors; then
+        CPU_TEMP=$(max_temperature $CPU_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || CPU_TEMP=未读取
+        BATTERY_TEMP=$(max_temperature $BATTERY_ZONES | awk '{printf "%.1f°C", $1 / 1000}') || BATTERY_TEMP=未读取
+        [ -n "$CPU_TEMP" ] || CPU_TEMP=未读取
+        [ -n "$BATTERY_TEMP" ] || BATTERY_TEMP=未读取
+    fi
+    printf 'cpu_temperature=%s\nbattery_temperature=%s\n' "$CPU_TEMP" "$BATTERY_TEMP" >> "$WORK/overview.txt"
     uname -a >> "$WORK/overview.txt"
     for SOURCE in "$CONFIG" "$LOG" "$LOG.1" "$MODDIR/build-info.txt" "$MODDIR/module.prop" "$STATUS"; do
         [ ! -r "$SOURCE" ] || cp "$SOURCE" "$WORK/$(basename "$SOURCE")"
@@ -323,6 +327,7 @@ case "${1:-status}" in
         exec "$MODDIR/zsmalloc/load.sh" "${2:-status}"
         ;;
     get-all) get_all ;;
+    get-runtime) get_runtime ;;
     theme-seed) theme_seed ;;
     collect-log) collect_log ;;
     open-log|cleanup-log)
@@ -383,5 +388,5 @@ case "${1:-status}" in
         if [ -r "$STATUS" ]; then cat "$STATUS"; else printf 'state=unloaded\n'; fi
         ;;
     log) tail -n 150 "$LOG" 2>/dev/null || true ;;
-    *) die '用法：bkctl status|get-all|set mode disabled/auto/manual|restore|log|collect-log|open-log NAME|cleanup-log NAME|perf start/stop/status|theme-seed' ;;
+    *) die '用法：bkctl status|get-all|get-runtime|set mode disabled/auto/manual|restore|log|collect-log|open-log NAME|cleanup-log NAME|perf start/stop/status|theme-seed' ;;
 esac

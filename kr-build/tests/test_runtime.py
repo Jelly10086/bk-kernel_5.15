@@ -79,6 +79,30 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse((self.state / 'control.conf').exists())
         self.assertFalse((self.state / 'daemon.pid').exists())
 
+    def test_ui_queries_skip_temperatures_and_runtime_skips_static_properties(self):
+        script = self.module / 'bkctl'
+        script.write_text(script.read_text().replace('find_sensors() {\n',
+            f'find_sensors() {{\n    echo scanned >> "{self.calls}"\n'))
+        properties = self.root / 'properties'
+        (self.mock / 'getprop').write_text(f'#!/bin/sh\necho "$1" >> "{properties}"\necho value\n')
+        result = self.run_ctl('get-all')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual(len(properties.read_text().splitlines()), 2)
+        properties.unlink()
+        result = self.run_ctl('get-runtime')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        self.assertEqual(values['kernel_compatible'], '0')
+        self.assertEqual(values['mode'], 'disabled')
+        self.assertEqual(values['runtime_mode'], 'waiting_kernel')
+        self.assertEqual(values['performance_state'], 'idle')
+        self.assertNotIn('system_version', values)
+        self.assertNotIn('module_version', values)
+        self.assertNotIn('cpu_temperature', values)
+        self.assertFalse(properties.exists())
+        self.assertFalse(self.calls.exists())
+
     def test_ui_maps_kernel_state_without_loading_module(self):
         (self.module / 'build-info.txt').write_text('KERNEL_RELEASE=5.15.216_bkk-CaT_r1\n')
         self.state.mkdir()
