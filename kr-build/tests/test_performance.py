@@ -251,6 +251,23 @@ esac
         self.assertEqual(mode.read_text().strip(), 'ignore')
         self.assertFalse((self.base / 'autostart-mode').exists())
 
+    def test_android_commands_do_not_receive_private_log_descriptors(self):
+        mode = self.mock_hyperos_autostart()
+        guard = f'''for fd in 1 2; do
+    target=$(readlink /proc/self/fd/$fd)
+    case "$target" in "{self.base}"/*) exit 73 ;; esac
+done
+'''
+        for name in ('cmd', 'dumpsys'):
+            path = self.bin / name
+            path.write_text(path.read_text().replace('#!/bin/sh\n', '#!/bin/sh\n' + guard, 1))
+        self.start()
+        self.call('stop')
+        self.acknowledge()
+        self.assertEqual(mode.read_text().strip(), 'ignore')
+        with tarfile.open(self.base / (self.name + '.tar.gz')) as archive:
+            self.assertIn('exit_reason=java_crash', archive.extractfile('./final.txt').read().decode())
+
     def test_dead_sampler_permission_is_restored_before_recovery(self):
         mode = self.mock_hyperos_autostart()
         self.start()

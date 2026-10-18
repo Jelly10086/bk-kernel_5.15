@@ -19,7 +19,8 @@ running() {
     if "$BB" flock -n 7; then "$BB" flock -u 7; return 1; fi
     return 0
 }
-bounded() { "$BB" timeout -s KILL 4 "$@" 2>/dev/null || true; }
+# Binder命令的输出经管道转存，system_server不能写模块私有文件
+bounded() { "$BB" timeout -s KILL 4 "$@" 2>/dev/null | cat || true; }
 own_file() {
     chown "$EXPORT_UID:$EXPORT_UID" "$1" && chmod 0600 "$1" || return 1
     [ -z "$EXPORT_CONTEXT" ] || chcon "$EXPORT_CONTEXT" "$1" 2>/dev/null
@@ -60,7 +61,7 @@ restore_exporter() (
     case "$MODE" in allow|ignore|deny|default) ;; *) return 1 ;; esac
     # 只撤销本轮临时允许，不覆盖用户在采集期间改成的其他状态
     if [ "$(autostart_mode)" = allow ]; then
-        cmd appops set --user 0 org.bkkernel.logexport 10008 "$MODE" >/dev/null || return 1
+        cmd appops set --user 0 org.bkkernel.logexport 10008 "$MODE" >/dev/null 2>&1 || return 1
     fi
     rm -f "$BASE/autostart-mode"
 )
@@ -72,7 +73,7 @@ prepare_exporter() {
     printf '%s\n' "$MODE" > "$BASE/.autostart-mode.tmp"
     mv -f "$BASE/.autostart-mode.tmp" "$BASE/autostart-mode"
     # 澎湃OS会拦截被回收后的导出服务，仅在用户采集和保存期间放行
-    cmd appops set --user 0 org.bkkernel.logexport 10008 allow >/dev/null
+    cmd appops set --user 0 org.bkkernel.logexport 10008 allow >/dev/null 2>&1
 }
 birth() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '$1 != "Z" {print $20}'; }
 stop_child() {
@@ -151,11 +152,11 @@ save_archive() {
     report saving
     if [ "${RESUME:-0}" = 1 ]; then
         "$BB" timeout -s KILL 10 am start --user 0 -n org.bkkernel.logexport/.PerformanceActivity \
-            -f 0x10000000 --es operation resume --es name "$NAME.tar.gz" >/dev/null || { report error; return 1; }
+            -f 0x10000000 --es operation resume --es name "$NAME.tar.gz" >/dev/null 2>&1 || { report error; return 1; }
     else
         # 通知进程可能已被系统回收，归档完成后显式恢复导出服务
         "$BB" timeout -s KILL 10 am start-foreground-service --user 0 \
-            -n org.bkkernel.logexport/.CaptureService --es name "$NAME.tar.gz" >/dev/null || {
+            -n org.bkkernel.logexport/.CaptureService --es name "$NAME.tar.gz" >/dev/null 2>&1 || {
                 publish failure 'Cannot restart export service'
                 report error
                 return 1
@@ -319,7 +320,7 @@ case "${1:-status}" in
         while [ ! -f "$WORK/ready" ] && [ "$ATTEMPT" -lt 50 ]; do sleep 0.1; ATTEMPT=$((ATTEMPT + 1)); done
         [ -f "$WORK/ready" ] || { publish stop cancel; report error; die '采样进程未启动'; }
         "$BB" timeout -s KILL 10 am start --user 0 -n org.bkkernel.logexport/.PerformanceActivity \
-            -f 0x10000000 --es operation choose --es name "$NAME.tar.gz" >/dev/null || {
+            -f 0x10000000 --es operation choose --es name "$NAME.tar.gz" >/dev/null 2>&1 || {
                 publish stop cancel; die '无法打开性能日志保存位置'; }
         echo '请选择保存位置，确认后开始采样'
         ;;
