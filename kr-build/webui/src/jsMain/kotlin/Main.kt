@@ -681,7 +681,7 @@ private fun CaptureCard(state: ControlState, busy: Boolean, onCapture: (String) 
     val stopEnabled = !busy && (state.captureState in listOf("choosing", "recording") || (!active && state.captureRetry))
     val summary = when (state.captureState) {
         "choosing" -> "选择保存位置后开始"
-        "recording" -> "正在采集，可离开页面运行游戏"
+        "recording" -> "正在采集，你现在可离开页面了"
         "stopping", "saving" -> "正在停止并保存"
         "saved" -> "已保存到所选位置"
         "cancelled" -> "已取消，未开始采集"
