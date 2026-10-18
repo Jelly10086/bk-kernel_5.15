@@ -15,12 +15,13 @@ if [ "$CURRENT_RELEASE" != "$BUILT_RELEASE" ]; then
 fi
 OLD=/data/adb/modules/bkk-control/bkctl
 if [ -x "$OLD" ]; then
+    [ ! -f "${OLD%/*}/performance.sh" ] || /data/adb/ksu/bin/busybox sh "$OLD" perf cancel || abort '旧采样停止失败'
     /data/adb/ksu/bin/busybox sh "$OLD" restore || abort '旧模块恢复失败'
 fi
 mkdir -p /data/adb/bkk-control
 chmod 0700 /data/adb/bkk-control
 printf 'mode=disabled\n' > /data/adb/bkk-control/control.conf
-for FILE in bkctl service.sh action.sh uninstall.sh post-fs-data.sh boot-completed.sh retention.sh; do
+for FILE in bkctl service.sh action.sh uninstall.sh post-fs-data.sh boot-completed.sh retention.sh performance.sh performance-sample.sh; do
     [ -f "$MODPATH/$FILE" ] || abort "缺少$FILE"
     set_perm "$MODPATH/$FILE" 0 0 0755
 done

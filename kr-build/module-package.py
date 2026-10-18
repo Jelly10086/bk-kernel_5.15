@@ -51,6 +51,7 @@ def package(out: Path, dist: Path, module: Path, clang: Path) -> Path:
     source = Path(__file__).with_name('modules') / 'bkk-control'
     required = ['webroot/bkControl.js', 'webroot/bridge.js', 'webroot/index.html',
                 'webroot/style.css', 'webroot/LICENSE-miuix.txt', 'bin/bkk-log-exporter.apk',
+                'performance.sh', 'performance-sample.sh',
                 'webroot/composeResources/org.bkkernel.control.generated.resources/font/bk_cjk.ttf']
     if not all((source / name).is_file() for name in required) or not list((source / 'webroot').glob('*.wasm')):
         raise ValueError('Miuix界面或日志保存组件不完整，请重新生成WebUI')

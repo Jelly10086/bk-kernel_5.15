@@ -206,6 +206,11 @@ get_all() {
     printf 'module_version=%s\nkernel_compatible=%s\nmode=%s\nruntime_mode=%s\n' \
         "$(sed -n 's/^version=//p' "$MODDIR/module.prop")" "$COMPATIBLE" "$MODE" "$RUNTIME"
     printf 'cpu_temperature=%s\nbattery_temperature=%s\n' "$CPU_TEMP" "$BATTERY_TEMP"
+    if [ -f "$MODDIR/performance.sh" ]; then
+        "$BB" sh "$MODDIR/performance.sh" status
+    else
+        printf 'performance_state=idle\nperformance_retry=0\n'
+    fi
 }
 
 install_exporter() (
@@ -224,6 +229,12 @@ resolve_exporter() {
         install_exporter
     fi
     EXPORT_INFO=$(dumpsys package "$EXPORT_PACKAGE") || die '无法读取日志保存组件'
+    EXPORT_VERSION=$(printf '%s\n' "$EXPORT_INFO" | sed -n 's/^[[:space:]]*versionCode=\([0-9]*\).*/\1/p' | head -n 1)
+    case "$EXPORT_VERSION" in ''|*[!0-9]*) die '日志保存组件版本无效' ;; esac
+    if [ "$EXPORT_VERSION" -lt 3 ]; then
+        install_exporter
+        EXPORT_INFO=$(dumpsys package "$EXPORT_PACKAGE") || die '无法读取更新后的日志保存组件'
+    fi
     EXPORT_UID=$(printf '%s\n' "$EXPORT_INFO" | awk -F= '/^[[:space:]]*(userId|appId)=/{sub(/[[:space:]].*/, "", $2); print $2; exit}')
     EXPORT_DATA=$(printf '%s\n' "$EXPORT_INFO" | awk -F= '/^[[:space:]]*dataDir=/{sub(/[[:space:]].*/, "", $2); print $2; exit}')
     case "$EXPORT_UID" in ''|*[!0-9]*) die '日志保存组件UID无效' ;; esac
@@ -256,6 +267,11 @@ collect_log() {
     done
     cat /proc/meminfo > "$WORK/meminfo.txt"
     dmesg | tail -n 1500 > "$WORK/dmesg.txt" || true
+    CAPTURE=$(cat "$STATE/performance/latest" 2>/dev/null || true)
+    if printf '%s\n' "$CAPTURE" | "$BB" grep -Eq '^bkk-performance-[0-9]{8}-[0-9]{6}-[A-Za-z0-9]{6}\.tar\.gz$' && \
+        [ -f "$STATE/performance/$CAPTURE" ]; then
+        cp "$STATE/performance/$CAPTURE" "$WORK/$CAPTURE"
+    fi
     "$BB" tar -czf "$EXPORT_TMP" -C "$WORK" . || die '日志打包失败'
     chown "$EXPORT_UID:$EXPORT_UID" "$EXPORT_TMP"
     chmod 0600 "$EXPORT_TMP"
@@ -288,6 +304,15 @@ mkdir -p "$STATE"
 chmod 0700 "$STATE"
 exec 9>"$STATE/control.lock"
 case "${1:-status}" in
+    perf)
+        case "${2:-status}" in
+            start)
+                resolve_exporter
+                exec "$BB" sh "$MODDIR/performance.sh" start "$EXPORT_DATA" "$EXPORT_UID" ;;
+            stop|cancel|status) exec "$BB" sh "$MODDIR/performance.sh" "${2:-status}" ;;
+            *) die '用法：bkctl perf start|stop|status' ;;
+        esac
+        ;;
     retain)
         case "${2:-status}" in apply|restore|status) ;; *) die '用法：bkctl retain apply|restore|status' ;; esac
         exec "$MODDIR/retention.sh" "${2:-status}"
@@ -358,5 +383,5 @@ case "${1:-status}" in
         if [ -r "$STATUS" ]; then cat "$STATUS"; else printf 'state=unloaded\n'; fi
         ;;
     log) tail -n 150 "$LOG" 2>/dev/null || true ;;
-    *) die '用法：bkctl status|get-all|set mode disabled/auto/manual|restore|log|collect-log|open-log NAME|cleanup-log NAME|theme-seed' ;;
+    *) die '用法：bkctl status|get-all|set mode disabled/auto/manual|restore|log|collect-log|open-log NAME|cleanup-log NAME|perf start/stop/status|theme-seed' ;;
 esac
