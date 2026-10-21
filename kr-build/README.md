@@ -2,6 +2,8 @@
 
 工具链：Google Clang 23.0.1 / `r614150`。工具链与 AnyKernel3 的来源提交固定在 `pins.env`
 
+`ForAOSP`分支关闭System V IPC和IPv6 NAT以满足Android内核配置检查，保留POSIX消息队列与IPC namespace。构建脚本校验最终配置，防止重新启用不兼容项。此分支的Actions只上传构建产物，不发布或覆盖Latest Release
+
 debian 依赖：
 
 ```bash

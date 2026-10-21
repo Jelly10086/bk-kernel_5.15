@@ -142,9 +142,13 @@ phase=生成配置
 make_kernel gki_defconfig
 for symbol in LRU_GEN LRU_GEN_ENABLED RCU_EXPERT RCU_NOCB_CPU RCU_LAZY \
     KSU KSU_TRACEPOINT_HOOK REKERNEL_X ANDROID_VENDOR_HOOKS KPROBES KALLSYMS_ALL \
-    ANDROID_BINDER_IPC CGROUP_FREEZER NETFILTER INET SYSVIPC POSIX_MQUEUE \
+    ANDROID_BINDER_IPC CGROUP_FREEZER NETFILTER INET POSIX_MQUEUE \
     USER_NS PID_NS IPC_NS NET_NS LTO_CLANG_FULL CFI_CLANG MODVERSIONS DEBUG_INFO_BTF; do
     grep -qx "CONFIG_$symbol=y" "$OUT_DIR/.config" || die "必要配置未启用：CONFIG_$symbol"
+done
+for symbol in SYSVIPC IP6_NF_NAT; do
+    grep -qx "# CONFIG_$symbol is not set" "$OUT_DIR/.config" || \
+        die "AOSP compatibility requires CONFIG_$symbol=n"
 done
 if grep -qx 'CONFIG_RCU_LAZY_DEFAULT_OFF=y' "$OUT_DIR/.config"; then
     die "RCU Lazy 被默认关闭"

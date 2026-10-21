@@ -276,6 +276,7 @@ jobs:
           retention-days: 14
 
   release:
+    if: github.ref_name != 'ForAOSP'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
