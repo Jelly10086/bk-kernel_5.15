@@ -479,6 +479,10 @@ int uprobe_write_opcode(struct arch_uprobe *auprobe, struct mm_struct *mm,
 	uprobe = container_of(auprobe, struct uprobe, arch);
 
 retry:
+	vma = find_vma(mm, vaddr);
+	if (!vma || vaddr < vma->vm_start)
+		return -EFAULT;
+	vma_start_write(vma);
 	if (is_register)
 		gup_flags |= FOLL_SPLIT_PMD;
 	/* Read the page with vaddr into memory */
@@ -1243,7 +1247,10 @@ static int unapply_uprobe(struct uprobe *uprobe, struct mm_struct *mm)
 	struct vm_area_struct *vma;
 	int err = 0;
 
-	mmap_read_lock(mm);
+	if (IS_ENABLED(CONFIG_PER_VMA_LOCK))
+		mmap_write_lock(mm);
+	else
+		mmap_read_lock(mm);
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		unsigned long vaddr;
 		loff_t offset;
@@ -1260,7 +1267,10 @@ static int unapply_uprobe(struct uprobe *uprobe, struct mm_struct *mm)
 		vaddr = offset_to_vaddr(vma, uprobe->offset);
 		err |= remove_breakpoint(uprobe, mm, vaddr);
 	}
-	mmap_read_unlock(mm);
+	if (IS_ENABLED(CONFIG_PER_VMA_LOCK))
+		mmap_write_unlock(mm);
+	else
+		mmap_read_unlock(mm);
 
 	return err;
 }

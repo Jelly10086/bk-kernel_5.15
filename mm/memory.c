@@ -241,7 +241,7 @@ struct vm_area_struct *get_vma(struct mm_struct *mm, unsigned long addr)
 	 * handling.
 	 */
 	if (vma) {
-		if (vma->vm_start > addr ||
+		if (READ_ONCE(vma->vm_start) > addr ||
 		    !atomic_inc_unless_negative(&vma->file_ref_count))
 			vma = NULL;
 	}

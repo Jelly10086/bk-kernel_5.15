@@ -2301,20 +2301,20 @@ struct vm_area_struct *find_vma_from_tree(struct mm_struct *mm, unsigned long ad
 	struct rb_node *rb_node;
 	struct vm_area_struct *vma = NULL;
 
-	rb_node = mm->mm_rb.rb_node;
+	rb_node = READ_ONCE(mm->mm_rb.rb_node);
 
 	while (rb_node) {
 		struct vm_area_struct *tmp;
 
 		tmp = rb_entry(rb_node, struct vm_area_struct, vm_rb);
 
-		if (tmp->vm_end > addr) {
+		if (READ_ONCE(tmp->vm_end) > addr) {
 			vma = tmp;
-			if (tmp->vm_start <= addr)
+			if (READ_ONCE(tmp->vm_start) <= addr)
 				break;
-			rb_node = rb_node->rb_left;
+			rb_node = READ_ONCE(rb_node->rb_left);
 		} else
-			rb_node = rb_node->rb_right;
+			rb_node = READ_ONCE(rb_node->rb_right);
 	}
 
 	return vma;

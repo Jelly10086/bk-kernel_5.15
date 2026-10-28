@@ -359,7 +359,7 @@ static struct kmem_cache *mm_cachep;
 #ifdef CONFIG_PER_VMA_LOCK
 static bool vma_lock_alloc(struct vm_area_struct *vma)
 {
-	struct vma_lock *lock = kzalloc(sizeof(*lock), GFP_KERNEL);
+	struct vma_lock *lock = kzalloc(sizeof(*lock), GFP_KERNEL_ACCOUNT);
 
 	if (!lock)
 		return false;

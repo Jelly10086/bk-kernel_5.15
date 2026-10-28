@@ -548,8 +548,8 @@ success:
 	 * set VM_LOCKED, populate_vma_page_range will bring it back.
 	 */
 
+	vma_start_write(vma);
 	if (lock)
-		vma_start_write(vma);
 		vma->vm_flags = vma_pad_fixup_flags(vma, newflags);
 	else
 		munlock_vma_pages_range(vma, start, end);

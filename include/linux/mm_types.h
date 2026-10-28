@@ -322,6 +322,14 @@ struct anon_vma_name {
 	char name[];
 };
 
+#ifdef CONFIG_PER_VMA_LOCK
+struct vma_lock {
+	struct rw_semaphore lock;
+	unsigned int seq;
+	bool detached;
+};
+#endif
+
 /*
  * This struct describes a virtual memory area. There is one of these
  * per VM-area/task. A VM area is any part of the process virtual memory
@@ -333,14 +341,6 @@ struct anon_vma_name {
  * (TODO - it would be preferable to copy only the required vma attributes
  *  rather than the entire vma).
  */
-#ifdef CONFIG_PER_VMA_LOCK
-struct vma_lock {
-	struct rw_semaphore lock;
-	unsigned int seq;
-	bool detached;
-};
-#endif
-
 struct vm_area_struct {
 	/* The first cache line has the info for VMA tree walking. */
 

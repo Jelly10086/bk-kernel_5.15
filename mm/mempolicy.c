@@ -771,13 +771,13 @@ static int vma_replace_policy(struct vm_area_struct *vma,
 	if (IS_ERR(new))
 		return PTR_ERR(new);
 
+	vma_start_write(vma);
 	if (vma->vm_ops && vma->vm_ops->set_policy) {
 		err = vma->vm_ops->set_policy(vma, new);
 		if (err)
 			goto err_out;
 	}
 
-	vma_start_write(vma);
 	old = vma->vm_policy;
 	vma->vm_policy = new; /* protected by mmap_lock */
 	mpol_put(old);
