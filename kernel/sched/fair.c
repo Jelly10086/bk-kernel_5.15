@@ -62,6 +62,7 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 unsigned int sysctl_sched_min_granularity			= 750000ULL;
+EXPORT_SYMBOL_GPL(sysctl_sched_min_granularity);
 static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
 
 /*
@@ -3117,6 +3118,7 @@ void reweight_task(struct task_struct *p, int prio)
 	reweight_entity(cfs_rq, se, weight);
 	load->inv_weight = sched_prio_to_wmult[prio];
 }
+EXPORT_SYMBOL_GPL(reweight_task);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 #ifdef CONFIG_SMP
@@ -4244,7 +4246,7 @@ static inline int task_fits_cpu(struct task_struct *p, int cpu)
 	return util_fits_cpu(util, uclamp_min, uclamp_max, cpu);
 }
 
-static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
+inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 {
 	bool need_update = true;
 
@@ -4268,6 +4270,7 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 	 */
 	rq->misfit_task_load = max_t(unsigned long, task_h_load(p), 1);
 }
+EXPORT_SYMBOL_GPL(update_misfit_status);
 
 #else /* CONFIG_SMP */
 
@@ -9065,6 +9068,17 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	     sds->local_stat.group_type != group_has_spare))
 		return false;
 
+	/*
+	 * Candidate sg has no more than one task per CPU and has higher
+	 * per-CPU capacity. Migrating tasks to less capable CPUs may harm
+	 * throughput. Maximize throughput, power/energy consequences are not
+	 * considered.
+	 */
+	if ((env->sd->flags & SD_ASYM_CPUCAPACITY) &&
+	    (sgs->group_type <= group_fully_busy) &&
+	    (capacity_greater(sg->sgc->min_capacity, capacity_of(env->dst_cpu))))
+		return false;
+
 	if (sgs->group_type > busiest->group_type)
 		return true;
 
@@ -9136,17 +9150,6 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 
 		break;
 	}
-
-	/*
-	 * Candidate sg has no more than one task per CPU and has higher
-	 * per-CPU capacity. Migrating tasks to less capable CPUs may harm
-	 * throughput. Maximize throughput, power/energy consequences are not
-	 * considered.
-	 */
-	if ((env->sd->flags & SD_ASYM_CPUCAPACITY) &&
-	    (sgs->group_type <= group_fully_busy) &&
-	    (capacity_greater(sg->sgc->min_capacity, capacity_of(env->dst_cpu))))
-		return false;
 
 	return true;
 }
