@@ -2963,7 +2963,7 @@ static int lock_page_maybe_drop_mmap(struct vm_fault *vmf, struct page *page,
 			 * mmap_lock here and return 0 if we don't have a fpin.
 			 */
 			if (*fpin == NULL)
-				mmap_read_unlock(vmf->vma->vm_mm);
+				release_fault_lock(vmf);
 			trace_android_vh_lock_folio_drop_mmap_end(false, &tsk, vmf, page, *fpin);
 			return 0;
 		}

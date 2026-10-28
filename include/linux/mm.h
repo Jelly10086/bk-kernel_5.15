@@ -483,6 +483,9 @@ enum fault_flag {
 	FAULT_FLAG_SPECULATIVE =	1 << 10,
 };
 
+/* Keep enum fault_flag unchanged: it is part of the exported vm_fault ABI. */
+#define FAULT_FLAG_VMA_LOCK BIT(11)
+
 /*
  * The default fault flags that should be used by most of the
  * arch-specific page fault handlers.
@@ -3533,6 +3536,15 @@ static inline void vma_start_write(struct vm_area_struct *vma) { }
 static inline bool vma_try_start_write(struct vm_area_struct *vma) { return true; }
 static inline void vma_mark_detached(struct vm_area_struct *vma, bool detached) { }
 #endif
+
+/* Fault retry paths release the lock that protected this fault attempt. */
+static inline void release_fault_lock(struct vm_fault *vmf)
+{
+	if (vmf->flags & FAULT_FLAG_VMA_LOCK)
+		vma_end_read(vmf->vma);
+	else
+		mmap_read_unlock(vmf->vma->vm_mm);
+}
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */

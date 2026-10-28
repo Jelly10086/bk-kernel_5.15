@@ -542,8 +542,10 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 	unsigned long vm_flags;
 	unsigned int mm_flags = FAULT_FLAG_DEFAULT;
 	unsigned long addr = untagged_addr(far);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
+#if defined(CONFIG_SPECULATIVE_PAGE_FAULT) || defined(CONFIG_PER_VMA_LOCK)
 	struct vm_area_struct *vma;
+#endif
+#if defined(CONFIG_SPECULATIVE_PAGE_FAULT) && !defined(CONFIG_PER_VMA_LOCK)
 	struct vm_area_struct pvma;
 	unsigned long seq;
 #endif
@@ -604,7 +606,27 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, addr);
 
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
+#ifdef CONFIG_PER_VMA_LOCK
+	if (!(mm_flags & FAULT_FLAG_USER))
+		goto lock_mmap;
+	vma = lock_vma_under_rcu(mm, addr);
+	if (!vma)
+		goto lock_mmap;
+	if (!(vma->vm_flags & vm_flags)) {
+		vma_end_read(vma);
+		goto lock_mmap;
+	}
+	fault = handle_mm_fault(vma, addr, mm_flags | FAULT_FLAG_VMA_LOCK, regs);
+	if (!(fault & VM_FAULT_RETRY)) {
+		vma_end_read(vma);
+		goto done;
+	}
+	if (fault_signal_pending(fault, regs))
+		return 0;
+	if (fault & VM_FAULT_MAJOR)
+		mm_flags |= FAULT_FLAG_TRIED;
+lock_mmap:
+#elif defined(CONFIG_SPECULATIVE_PAGE_FAULT)
 	/*
 	 * No need to try speculative faults for kernel or
 	 * single threaded user space.
@@ -697,7 +719,7 @@ retry:
 		}
 	}
 	mmap_read_unlock(mm);
-#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
+#if defined(CONFIG_SPECULATIVE_PAGE_FAULT) || defined(CONFIG_PER_VMA_LOCK)
 done:
 #endif
 

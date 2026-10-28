@@ -3259,6 +3259,11 @@ static vm_fault_t wp_page_copy(struct vm_fault *vmf)
 			ret = VM_FAULT_RETRY;
 			goto out;
 		}
+		if (vmf->flags & FAULT_FLAG_VMA_LOCK) {
+			release_fault_lock(vmf);
+			ret = VM_FAULT_RETRY;
+			goto out;
+		}
 		if (__anon_vma_prepare(vma))
 			goto out;
 	}
@@ -3740,9 +3745,25 @@ void unmap_mapping_range(struct address_space *mapping,
 }
 EXPORT_SYMBOL(unmap_mapping_range);
 
-/*
- * Restore a potential device exclusive pte to a working pte entry
- */
+/* Keep the legacy exported page-lock interface for existing modules. */
+static bool fault_lock_page_or_retry(struct page *page, struct vm_fault *vmf)
+{
+	if (!(vmf->flags & FAULT_FLAG_VMA_LOCK))
+		return lock_page_or_retry(page, vmf->vma->vm_mm, vmf->flags);
+	if (trylock_page(page))
+		return true;
+	if (vmf->flags & FAULT_FLAG_RETRY_NOWAIT)
+		return false;
+
+	release_fault_lock(vmf);
+	if (vmf->flags & FAULT_FLAG_KILLABLE)
+		wait_on_page_locked_killable(page);
+	else
+		wait_on_page_locked(page);
+	return false;
+}
+
+/* Restore a potential device exclusive pte to a working pte entry. */
 static vm_fault_t remove_device_exclusive_entry(struct vm_fault *vmf)
 {
 	struct page *page = vmf->page;
@@ -3760,7 +3781,7 @@ static vm_fault_t remove_device_exclusive_entry(struct vm_fault *vmf)
 	if (!get_page_unless_zero(page))
 		return 0;
 
-	if (!lock_page_or_retry(page, vma->vm_mm, vmf->flags)) {
+	if (!fault_lock_page_or_retry(page, vmf)) {
 		put_page(page);
 		return VM_FAULT_RETRY;
 	}
@@ -3824,6 +3845,10 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 	entry = pte_to_swp_entry(vmf->orig_pte);
 	if (unlikely(non_swap_entry(entry))) {
+		if (vmf->flags & FAULT_FLAG_VMA_LOCK) {
+			release_fault_lock(vmf);
+			return VM_FAULT_RETRY;
+		}
 		if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
 			ret = VM_FAULT_RETRY;
 			goto out;
@@ -3930,7 +3955,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	}
 
 	trace_android_vh_do_swap_page_lock_check(page, vmf);
-	locked = lock_page_or_retry(page, vma->vm_mm, vmf->flags);
+	locked = fault_lock_page_or_retry(page, vmf);
 
 	delayacct_clear_flag(current, DELAYACCT_PF_SWAPIN);
 	if (!locked) {
@@ -4108,6 +4133,10 @@ skip_pmd_checks:
 		if (unlikely(!vma->anon_vma)) {
 			if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
 				count_vm_spf_event(SPF_ABORT_ANON_VMA);
+				return VM_FAULT_RETRY;
+			}
+			if (vmf->flags & FAULT_FLAG_VMA_LOCK) {
+				release_fault_lock(vmf);
 				return VM_FAULT_RETRY;
 			}
 			if (__anon_vma_prepare(vma))
@@ -4630,6 +4659,10 @@ static vm_fault_t do_cow_fault(struct vm_fault *vmf)
 			count_vm_spf_event(SPF_ABORT_ANON_VMA);
 			return VM_FAULT_RETRY;
 		}
+		if (vmf->flags & FAULT_FLAG_VMA_LOCK) {
+			release_fault_lock(vmf);
+			return VM_FAULT_RETRY;
+		}
 		if (__anon_vma_prepare(vma))
 			return VM_FAULT_OOM;
 	}
@@ -4717,6 +4750,14 @@ static vm_fault_t do_fault(struct vm_fault *vmf)
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE)
 		count_vm_spf_event(SPF_ATTEMPT_FILE);
+
+	if ((vmf->flags & FAULT_FLAG_VMA_LOCK) &&
+	    (!vma->vm_ops->fault ||
+	     vma->vm_ops->map_pages != filemap_map_pages ||
+	     (vma->vm_flags & VM_SHARED))) {
+		release_fault_lock(vmf);
+		return VM_FAULT_RETRY;
+	}
 
 	/*
 	 * The VMA was not fully populated on mmap() or missing VM_DONTEXPAND
