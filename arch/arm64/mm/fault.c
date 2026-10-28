@@ -545,6 +545,9 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 #if defined(CONFIG_SPECULATIVE_PAGE_FAULT) || defined(CONFIG_PER_VMA_LOCK)
 	struct vm_area_struct *vma;
 #endif
+#ifdef CONFIG_PER_VMA_LOCK
+	bool vma_lock_retried = false;
+#endif
 #if defined(CONFIG_SPECULATIVE_PAGE_FAULT) && !defined(CONFIG_PER_VMA_LOCK)
 	struct vm_area_struct pvma;
 	unsigned long seq;
@@ -609,6 +612,7 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 #ifdef CONFIG_PER_VMA_LOCK
 	if (!(mm_flags & FAULT_FLAG_USER))
 		goto lock_mmap;
+lock_vma:
 	vma = lock_vma_under_rcu(mm, addr);
 	if (!vma)
 		goto lock_mmap;
@@ -625,6 +629,10 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 		return 0;
 	if (fault & VM_FAULT_MAJOR)
 		mm_flags |= FAULT_FLAG_TRIED;
+	if (!vma_lock_retried) {
+		vma_lock_retried = true;
+		goto lock_vma;
+	}
 lock_mmap:
 #elif defined(CONFIG_SPECULATIVE_PAGE_FAULT)
 	/*
