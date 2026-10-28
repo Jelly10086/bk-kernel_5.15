@@ -3460,5 +3460,79 @@ void put_vma(struct vm_area_struct *vma);
 #endif	/* CONFIG_SPECULATIVE_PAGE_FAULT */
 #endif	/* CONFIG_MMU */
 
+#ifdef CONFIG_PER_VMA_LOCK
+/* Callers must keep the VMA alive while trying to acquire its lock. */
+static inline bool vma_start_read(struct vm_area_struct *vma)
+{
+	struct vma_lock *lock = vma->vm_lock;
+
+	if (!lock || READ_ONCE(lock->seq) == READ_ONCE(vma->vm_mm->mm_lock_seq))
+		return false;
+	if (!down_read_trylock(&lock->lock))
+		return false;
+	/* Pairs with the release in vma_end_write_all(). */
+	if (lock->seq == smp_load_acquire(&vma->vm_mm->mm_lock_seq)) {
+		up_read(&lock->lock);
+		return false;
+	}
+	return true;
+}
+
+/* Consumes the reference acquired by lock_vma_under_rcu(). */
+static inline void vma_end_read(struct vm_area_struct *vma)
+{
+	up_read(&vma->vm_lock->lock);
+	put_vma(vma);
+}
+
+static inline void vma_start_write(struct vm_area_struct *vma)
+{
+	struct vma_lock *lock = vma->vm_lock;
+	unsigned int seq;
+
+	mmap_assert_write_locked(vma->vm_mm);
+	if (!lock)
+		return;
+	seq = vma->vm_mm->mm_lock_seq;
+	if (lock->seq == seq)
+		return;
+	down_write(&lock->lock);
+	WRITE_ONCE(lock->seq, seq);
+	up_write(&lock->lock);
+}
+
+static inline bool vma_try_start_write(struct vm_area_struct *vma)
+{
+	struct vma_lock *lock = vma->vm_lock;
+	unsigned int seq;
+
+	mmap_assert_write_locked(vma->vm_mm);
+	if (!lock)
+		return true;
+	seq = vma->vm_mm->mm_lock_seq;
+	if (lock->seq == seq)
+		return true;
+	if (!down_write_trylock(&lock->lock))
+		return false;
+	WRITE_ONCE(lock->seq, seq);
+	up_write(&lock->lock);
+	return true;
+}
+
+static inline void vma_mark_detached(struct vm_area_struct *vma, bool detached)
+{
+	if (vma->vm_lock)
+		vma->vm_lock->detached = detached;
+}
+
+struct vm_area_struct *lock_vma_under_rcu(struct mm_struct *mm,
+					  unsigned long address);
+#else
+static inline void vma_end_read(struct vm_area_struct *vma) { }
+static inline void vma_start_write(struct vm_area_struct *vma) { }
+static inline bool vma_try_start_write(struct vm_area_struct *vma) { return true; }
+static inline void vma_mark_detached(struct vm_area_struct *vma, bool detached) { }
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */

@@ -333,6 +333,14 @@ struct anon_vma_name {
  * (TODO - it would be preferable to copy only the required vma attributes
  *  rather than the entire vma).
  */
+#ifdef CONFIG_PER_VMA_LOCK
+struct vma_lock {
+	struct rw_semaphore lock;
+	unsigned int seq;
+	bool detached;
+};
+#endif
+
 struct vm_area_struct {
 	/* The first cache line has the info for VMA tree walking. */
 
@@ -428,7 +436,11 @@ struct vm_area_struct {
 	atomic_t file_ref_count;
 #endif
 
+#ifdef CONFIG_PER_VMA_LOCK
+	ANDROID_KABI_USE(1, struct vma_lock *vm_lock);
+#else
 	ANDROID_KABI_RESERVE(1);
+#endif
 	ANDROID_KABI_RESERVE(2);
 	ANDROID_KABI_RESERVE(3);
 	ANDROID_KABI_RESERVE(4);
@@ -652,7 +664,11 @@ struct mm_struct {
 		} lru_gen;
 #endif /* CONFIG_LRU_GEN */
 
+#ifdef CONFIG_PER_VMA_LOCK
+		ANDROID_KABI_USE(1, unsigned int mm_lock_seq);
+#else
 		ANDROID_KABI_RESERVE(1);
+#endif
 	} __randomize_layout;
 
 	/*

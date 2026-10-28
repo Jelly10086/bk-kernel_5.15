@@ -356,13 +356,40 @@ static struct kmem_cache *vm_area_cachep;
 /* SLAB cache for mm_struct structures (tsk->mm) */
 static struct kmem_cache *mm_cachep;
 
+#ifdef CONFIG_PER_VMA_LOCK
+static bool vma_lock_alloc(struct vm_area_struct *vma)
+{
+	struct vma_lock *lock = kzalloc(sizeof(*lock), GFP_KERNEL);
+
+	if (!lock)
+		return false;
+	init_rwsem(&lock->lock);
+	lock->seq = ~0U;
+	vma->vm_lock = lock;
+	return true;
+}
+
+static void vma_lock_free(struct vm_area_struct *vma)
+{
+	kfree(vma->vm_lock);
+}
+#else
+static bool vma_lock_alloc(struct vm_area_struct *vma) { return true; }
+static inline void vma_lock_free(struct vm_area_struct *vma) { }
+#endif
+
 struct vm_area_struct *vm_area_alloc(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
 
 	vma = kmem_cache_alloc(vm_area_cachep, GFP_KERNEL);
-	if (vma)
+	if (vma) {
 		vma_init(vma, mm);
+		if (!vma_lock_alloc(vma)) {
+			kmem_cache_free(vm_area_cachep, vma);
+			return NULL;
+		}
+	}
 	return vma;
 }
 
@@ -378,6 +405,10 @@ struct vm_area_struct *vm_area_dup(struct vm_area_struct *orig)
 		 * will be reinitialized.
 		 */
 		*new = data_race(*orig);
+		if (!vma_lock_alloc(new)) {
+			kmem_cache_free(vm_area_cachep, new);
+			return NULL;
+		}
 		INIT_VMA(new);
 		new->vm_next = new->vm_prev = NULL;
 		dup_anon_vma_name(orig, new);
@@ -390,6 +421,7 @@ static void __free_vm_area_struct(struct rcu_head *head)
 {
 	struct vm_area_struct *vma = container_of(head, struct vm_area_struct,
 						  vm_rcu);
+	vma_lock_free(vma);
 	kmem_cache_free(vm_area_cachep, vma);
 }
 
@@ -602,6 +634,7 @@ static __latent_entropy int dup_mmap(struct mm_struct *mm,
 				goto fail_nomem;
 			charge = len;
 		}
+		vma_start_write(mpnt);
 		tmp = vm_area_dup(mpnt);
 		if (!tmp)
 			goto fail_nomem;

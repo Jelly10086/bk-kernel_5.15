@@ -72,6 +72,9 @@ static inline void __mmap_lock_trace_released(struct mm_struct *mm, bool write)
 static inline void mmap_init_lock(struct mm_struct *mm)
 {
 	init_rwsem(&mm->mmap_lock);
+#ifdef CONFIG_PER_VMA_LOCK
+	mm->mm_lock_seq = 0;
+#endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	mm->mmap_seq = 0;
 #endif
@@ -166,9 +169,18 @@ static inline bool mmap_write_trylock(struct mm_struct *mm)
 	return ok;
 }
 
+static inline void vma_end_write_all(struct mm_struct *mm)
+{
+#ifdef CONFIG_PER_VMA_LOCK
+	/* Publish VMA changes before readers observe the next lock epoch. */
+	smp_store_release(&mm->mm_lock_seq, mm->mm_lock_seq + 1);
+#endif
+}
+
 static inline void mmap_write_unlock(struct mm_struct *mm)
 {
 	__mmap_lock_trace_released(mm, true);
+	vma_end_write_all(mm);
 	__mmap_seq_write_unlock(mm);
 	up_write(&mm->mmap_lock);
 }
@@ -176,6 +188,7 @@ static inline void mmap_write_unlock(struct mm_struct *mm)
 static inline void mmap_write_downgrade(struct mm_struct *mm)
 {
 	__mmap_lock_trace_acquire_returned(mm, false, true);
+	vma_end_write_all(mm);
 	__mmap_seq_write_unlock(mm);
 	downgrade_write(&mm->mmap_lock);
 }

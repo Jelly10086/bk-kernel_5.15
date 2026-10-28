@@ -117,6 +117,7 @@ void vma_set_pad_pages(struct vm_area_struct *vma,
 	if (!is_pgsize_migration_enabled())
 		return;
 
+	vma_start_write(vma);
 	vma->vm_flags &= ~VM_PAD_MASK;
 	vma->vm_flags |= (nr_pages << VM_PAD_SHIFT);
 }

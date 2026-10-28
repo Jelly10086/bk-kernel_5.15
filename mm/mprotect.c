@@ -493,6 +493,7 @@ mprotect_fixup(struct mmu_gather *tlb, struct vm_area_struct *vma,
 	}
 
 success:
+	vma_start_write(vma);
 	/*
 	 * vm_flags and vm_page_prot are protected by the mmap_lock
 	 * held in write mode.

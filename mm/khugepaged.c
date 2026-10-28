@@ -1135,6 +1135,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	result = hugepage_vma_revalidate(mm, address, &vma);
 	if (result)
 		goto out_up_write;
+	vma_start_write(vma);
 	/* check if the pmd is still valid */
 	if (mm_find_pmd(mm, address) != pmd)
 		goto out_up_write;
@@ -1462,6 +1463,7 @@ void collapse_pte_mapped_thp(struct mm_struct *mm, unsigned long addr)
 	if (!hugepage_vma_check(vma, vma->vm_flags | VM_HUGEPAGE))
 		return;
 
+	vma_start_write(vma);
 	hpage = find_lock_page(vma->vm_file->f_mapping,
 			       linear_page_index(vma, haddr));
 	if (!hpage)
@@ -1628,6 +1630,11 @@ static void retract_page_tables(struct address_space *mapping, pgoff_t pgoff)
 		 * reverse order. Trylock is a way to avoid deadlock.
 		 */
 		if (mmap_write_trylock(mm)) {
+			/* The page lock is held, so do not wait for a fault. */
+			if (!vma_try_start_write(vma)) {
+				mmap_write_unlock(mm);
+				continue;
+			}
 			if (!khugepaged_test_exit(mm)) {
 				struct mmu_notifier_range range;
 

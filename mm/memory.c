@@ -259,6 +259,50 @@ void put_vma(struct vm_area_struct *vma)
 		vm_area_free_no_check(vma);
 }
 
+#endif /* CONFIG_SPECULATIVE_PAGE_FAULT */
+
+#ifdef CONFIG_PER_VMA_LOCK
+struct vm_area_struct *lock_vma_under_rcu(struct mm_struct *mm,
+					  unsigned long address)
+{
+	struct vm_area_struct *vma;
+	unsigned long seq = mmap_seq_read_start(mm);
+
+	if (seq & 1)
+		return NULL;
+	vma = get_vma(mm, address);
+	if (!vma)
+		return NULL;
+	if (!vma_start_read(vma)) {
+		put_vma(vma);
+		return NULL;
+	}
+	/* Revalidate after taking the lock; tree links may have changed. */
+	if (unlikely(!__mmap_seq_read_check(mm, seq) || vma->vm_mm != mm ||
+		     address < vma->vm_start || address >= vma->vm_end ||
+		     vma->vm_lock->detached))
+		goto fail;
+	/* Stack growth still uses mmap_read_lock in this kernel. */
+	if (vma->vm_flags & (VM_GROWSDOWN | VM_GROWSUP | VM_HUGETLB |
+			     VM_PFNMAP | VM_MIXEDMAP | VM_IO | VM_UFFD_MISSING |
+			     VM_UFFD_WP | VM_UFFD_MINOR))
+		goto fail;
+	if (vma_is_anonymous(vma) && !vma->anon_vma)
+		goto fail;
+	/* Legacy callbacks have no per-VMA fault-lock contract. */
+	if (!vma_is_anonymous(vma) &&
+	    (!vma->vm_ops || vma->vm_ops->map_pages != filemap_map_pages))
+		goto fail;
+	if (!vma_is_anonymous(vma) && (vma->vm_flags & VM_SHARED))
+		goto fail;
+	return vma;
+fail:
+	vma_end_read(vma);
+	return NULL;
+}
+#endif
+
+#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 #if ALLOC_SPLIT_PTLOCKS
 static void wait_for_smp_sync(void *arg)
 {

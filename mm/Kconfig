@@ -958,6 +958,17 @@ config LRU_GEN_STATS
 
 source "mm/damon/Kconfig"
 
+config PER_VMA_LOCK
+	bool "Per-VMA locking for user page faults"
+	depends on ARM64 && MMU && SMP && SPECULATIVE_PAGE_FAULT
+	depends on ANDROID_KABI_RESERVE
+	help
+	  Handle supported user faults under a VMA read lock rather than the
+	  process-wide mmap_lock. VMA lookup and lifetime tracking reuse the
+	  existing RCU and reference-counting infrastructure. Unsupported
+	  mappings fall back to mmap_lock. Disabling this option restores the
+	  speculative fault path.
+
 config ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT
        def_bool n
 

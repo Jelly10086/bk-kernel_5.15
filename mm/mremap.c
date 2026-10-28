@@ -551,6 +551,9 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	pmd_t *old_pmd, *new_pmd;
 	pud_t *old_pud, *new_pud;
 
+	vma_start_write(vma);
+	vma_start_write(new_vma);
+
 	if (!len)
 		return 0;
 
