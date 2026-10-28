@@ -2313,8 +2313,9 @@ struct vm_area_struct *find_vma_from_tree(struct mm_struct *mm, unsigned long ad
 			if (READ_ONCE(tmp->vm_start) <= addr)
 				break;
 			rb_node = READ_ONCE(rb_node->rb_left);
-		} else
+		} else {
 			rb_node = READ_ONCE(rb_node->rb_right);
+		}
 	}
 
 	return vma;
