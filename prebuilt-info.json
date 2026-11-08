@@ -1,0 +1,19 @@
+{
+  "device": "sheng",
+  "kernel_release": "5.15.216_bkk-CaT_b5-ForAOSP-c3486ef994dca",
+  "kernel_source": {
+    "repository": "https://github.com/Jelly10086/bk-kernel_5.15",
+    "branch": "ForAOSP",
+    "revision": "3486ef994dca45786d3afbb29dd897ac91c9448e"
+  },
+  "header_sources": [
+    {
+      "repository": "https://github.com/xiaomi-sm8550-devs/android_kernel_xiaomi_sm8550-modules",
+      "revision": "92a9fde479d3262da080cfd28bab0775b0da500a"
+    },
+    {
+      "repository": "https://github.com/xiaomi-sm8550-devs/android_kernel_xiaomi_sm8550",
+      "revision": "f9ca2b71f6725a0d4f0b1cb2aa553baaea98e74d"
+    }
+  ]
+}
