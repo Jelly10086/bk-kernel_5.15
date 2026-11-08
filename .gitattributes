@@ -1,0 +1,4 @@
+/kernel binary
+*.ko binary
+*.dtb binary
+*.img binary
