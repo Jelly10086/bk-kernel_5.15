@@ -110,6 +110,30 @@ def zip_tree(source: Path, target: Path) -> None:
             raise ValueError('AK3不能包含独立控制模块')
 
 
+def package_aosp_prebuilt(out: Path, headers: Path, inputs: dict[str, Path], target: Path) -> None:
+    image = out / "arch/arm64/boot/Image"
+    with image.open("rb") as stream:
+        if stream.read(64)[56:60] != b"ARM\x64":
+            raise ValueError("AOSP prebuilt Image is not an ARM64 kernel")
+    for directory in ("kernel-headers", "original-kernel-headers"):
+        if not any((headers / directory).rglob("*.h")):
+            raise ValueError(f"Missing vendor UAPI headers: {headers / directory}")
+    with tempfile.TemporaryDirectory(prefix=".aosp-prebuilt-", dir=target.parent) as temp:
+        stage = Path(temp)
+        shutil.copy2(image, stage / "kernel")
+        for relative, source in inputs.items():
+            shutil.copy2(source, stage / relative)
+        for directory in ("kernel-headers", "original-kernel-headers"):
+            shutil.copytree(headers / directory, stage / directory)
+        files = sorted(path for path in stage.rglob("*") if path.is_file())
+        (stage / "SHA256SUMS").write_text("".join(
+            f"{checksum(path)}  {path.relative_to(stage).as_posix()}\n" for path in files
+        ))
+        with tarfile.open(target, "w:xz") as archive:
+            for path in sorted(stage.iterdir()):
+                archive.add(path, arcname=path.name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="打包 sheng AnyKernel3 ZIP")
     parser.add_argument("--out-dir", required=True, type=Path)
@@ -117,6 +141,7 @@ def main() -> None:
     parser.add_argument("--cache-dir", required=True, type=Path)
     parser.add_argument("--anykernel-commit", required=True)
     parser.add_argument("--version-name")
+    parser.add_argument("--aosp-headers", type=Path)
     args = parser.parse_args()
     version = args.version_name
     if version is None:
@@ -191,6 +216,11 @@ def main() -> None:
         for relative, path in inputs.items():
             shutil.copy2(path, bundle / relative)
         shutil.copy2(installer / 'allocator/build-info.txt', bundle / 'zsmalloc-build-info.txt')
+        if args.aosp_headers is not None:
+            package_aosp_prebuilt(
+                out, args.aosp_headers.resolve(), inputs,
+                bundle / f"bkk-{version}-AOSP-prebuilt.tar.xz",
+            )
         files = sorted(bundle.iterdir())
         (bundle / "SHA256SUMS").write_text("".join(
             f"{checksum(path)}  {path.name}\n" for path in files

@@ -9,6 +9,10 @@ esac
 require_commands python3
 PACKAGE_VERSION=${PACKAGE_VERSION:-$(read_package_version)}
 valid_package_version "$PACKAGE_VERSION" || die "版本格式无效：$PACKAGE_VERSION"
+aosp_args=()
+if [[ -n "${AOSP_PREBUILT_HEADERS:-}" ]]; then
+    aosp_args=(--aosp-headers "$AOSP_PREBUILT_HEADERS")
+fi
 exec python3 "$KR_BUILD_DIR/package.py" --out-dir "$OUT_DIR" --dist-dir "$DIST_DIR" \
     --cache-dir "$KR_BUILD_DIR/.cache" --anykernel-commit "$ANYKERNEL_COMMIT" \
-    --version-name "$PACKAGE_VERSION"
+    --version-name "$PACKAGE_VERSION" "${aosp_args[@]}"
