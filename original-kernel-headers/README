@@ -1,0 +1,37 @@
+Qualcomm SM8550 vendor UAPI headers
+
+Source: https://github.com/xiaomi-sm8550-devs/android_kernel_xiaomi_sm8550-modules
+Revision: 92a9fde479d3262da080cfd28bab0775b0da500a
+Directories:
+    qcom/opensource/audio-kernel/include/uapi/audio
+    qcom/opensource/display-drivers/include/uapi/display
+    nxp/opensource/driver/include/uapi/linux/nfc
+
+Additional memory, networking, touch and ADSP sleep monitor UAPI headers:
+Source: https://github.com/xiaomi-sm8550-devs/android_kernel_xiaomi_sm8550
+Revision: f9ca2b71f6725a0d4f0b1cb2aa553baaea98e74d
+Directories:
+    include/uapi/linux
+    include/uapi/misc
+
+The adjacent kernel-headers directory is generated with AOSP's
+bionic/libc/kernel/tools/clean_header.py, except for display/media/mmm_color_fmt.h
+and display/drm/mi_disp.h. These two UAPI headers are copied unchanged because
+the cleaner removes their userspace inline helpers, including the buffer layout
+calculations required by gralloc. Keep their original licenses and implementations.
+The ForAOSP prebuilt archive ships these directories next to the kernel image.
+The device config selects kernel-headers through TARGET_BOARD_KERNEL_HEADERS.
+
+Regenerate from the Android source tree root after unpacking the prebuilt archive:
+
+find device/xiaomi/sheng-kernel/original-kernel-headers -name '*.h' \
+    ! -path '*/display/media/mmm_color_fmt.h' \
+    ! -path '*/display/drm/mi_disp.h' -printf '%P\0' |
+    xargs -0 env ANDROID_BUILD_TOP="$PWD" bionic/libc/kernel/tools/clean_header.py -u \
+        -k device/xiaomi/sheng-kernel/original-kernel-headers \
+        -d device/xiaomi/sheng-kernel/kernel-headers
+
+for header in display/media/mmm_color_fmt.h display/drm/mi_disp.h; do
+    cp "device/xiaomi/sheng-kernel/original-kernel-headers/$header" \
+        "device/xiaomi/sheng-kernel/kernel-headers/$header"
+done
